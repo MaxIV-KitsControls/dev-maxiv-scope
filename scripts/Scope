@@ -1,0 +1,4 @@
+#!/bin/bash
+#device launcher
+from RohdeSchwarzRTO import main
+main()
