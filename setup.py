@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(name = 'tangods-scope',
       version = '0.1',
       description = 'Tango device for Rohde and Schwarz RTO 1004 oscilloscope',
-      author='Paul Bell'
+      author='Paul Bell',
       scripts = ['scripts/Scope'],
       package_dir = {'' : 'src'},
      )
