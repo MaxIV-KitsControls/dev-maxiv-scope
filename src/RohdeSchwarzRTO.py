@@ -23,7 +23,7 @@ import time
 import traceback
 import numpy,struct,copy
 from types import StringType
-from rohdeschwarzrto import RohdeSchwarzRTOConnection
+from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 #from monitor import Monitor
 
 ##############################################################################
@@ -51,36 +51,31 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         if newstate != self.get_state():
             self.set_state(newstate)
           
-   #----- section to resolve instrument property
-    def __buildInstrumentObj(self):
+    def connectInstrument(self):
+        self._instrument = None
         try:
-            self._instrument = None
             self._instrument =  RohdeSchwarzRTOConnection(self.Instrument,self.Port)
         except Exception,e:
             self.error_stream("Generic exception: %s"%(e))
             self.change_state(PyTango.DevState.FAULT)
-            return False
-        #self.change_state(PyTango.DevState.OFF)
-        return True
-
-    def __connectInstrumentObj(self):
-        if not hasattr(self,'_instrument') or self._instrument == None:
-            self.error_stream("In %s.__connectInstrumentObj(): instrument object not build yet"%(self.get_name()))
-            self.change_state(PyTango.DevState.FAULT)
+            self.set_status("Could not connect to hardware.")
             return False
         try:
             self._instrument.connect()
             self._idn = self._instrument.getIDN()
         except Exception,e:
-            self.error_stream("In %s.__connectInstrumentObj() Cannot connect "\
+            self.error_stream("In %s.connectInstrument() Cannot connect "\
                               "to the instrument due to: %s"%(self.get_name(),e))
             traceback.print_exc()
             self.change_state(PyTango.DevState.FAULT)
+            self.set_status("Could not connect to hardware.")
+            self._instrument = None
             return False
         else:
-            self.info_stream("In %s.__connectInstrumentObj() Connected to "\
+            self.info_stream("In %s.connectInstrument() Connected to "\
                              "the instrument and "\
                              "identified as: %s"%(self.get_name(),repr(self._idn)))
+            self.change_state(PyTango.DevState.ON)
             return True
 
         #def startMonitoring(self):
@@ -166,8 +161,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #PJB push trigger count
         #self.set_change_event("AcquireAvailable", True)
         self._instrument = None
-        self.__buildInstrumentObj()
-        self.__connectInstrumentObj()
+        #if not self.__buildInstrumentObj():
+        #    return
+        if not self.connectInstrument():
+            return
 
         #once connected check if already running or not. 
         tango_status, status_str = self._instrument.getOperCond()
@@ -182,21 +179,25 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    Always excuted hook method
 #------------------------------------------------------------------
     def always_executed_hook(self):
-        #avoid polling hw to often:                                             
-        #now = time.time()                                                      
-	#if now - self.state_refresh_ts > self.state_refresh_interval_seconds:  
-         #   self.state_refresh_ts = now     
+
         self.debug_stream("In " + self.get_name() + ".always_excuted_hook()")
-        if self._instrument == None:
-            self.set_state(PyTango.DevState.STANDBY)
-            self.set_status("No connection to instrument")
+
+        #if we put it in standby, do nothing
+        if self.get_state() in [PyTango.DevState.STANDBY]:
             return
-        try:
-            tango_status, status_str = self._instrument.getOperCond()
-        except PyTango.DevFailed as df:
-            status_str = "Error communicating with instrument"
-            tango_status = PyTango.DevState.FAULT
-            
+
+        #this checks if we start ds then switch on hw, eventually makes a connection
+        if not self._instrument:
+            # No connection, try to make one
+            if not self.connectInstrument():
+                return
+            self.set_state(PyTango.DevState.UNKNOWN)
+            self.set_status("Could not communicate with hardware.")
+            return
+
+        #need work here: no protection against timeout if connection lost during operation!
+        #this checks if device is acquiring, ie running
+        tango_status, status_str = self._instrument.getOperCond()
         self.set_status(status_str)
         self.set_state(tango_status)
 
@@ -227,7 +228,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             os = self._instrument.getCount()
             #PJB xxx self.push_change_event("AcquireAvailable", int(os))
             attr.set_value(int(os))  
-            #print "in acq available ", os, self.myWaveformSumCh1
             # PJB xxx need to read wave form and get sum here, if this counter is polled
             currentdata = self._instrument.getWaveformData(1)
             currentsum  = self._instrument.sumWaveform(currentdata)
@@ -274,16 +274,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return
 
 #------------------------------------------------------------------
-#    Write FixedRecordLength attribute
-#------------------------------------------------------------------
-#    def write_FixedRecordLength(self, attr):
-#        #try:  
-#        self._instrument.setFixedRecordLength(data)
-#        #except:
-#    def is_FixedRecordLength_allowed(self, req_type):
-#        return True
-
-#------------------------------------------------------------------
 #    Write RecordLength attribute
 #------------------------------------------------------------------
     def write_RecordLength(self, attr):
@@ -305,11 +295,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    Read WaveformSumCh1 attribute
 #------------------------------------------------------------------
     def read_WaveformSumCh1(self, attr):
-        print "PJB in sum"
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh1()")
         try:
             #if self.myWaveformDataCh1 is not None: 
-            #    mysum = self._instrument.sumWaveform(self.myWaveformDataCh1)
+            #mysum = self._instrument.sumWaveform(self.myWaveformDataCh1)
             #else:
             #self.myWaveformDataCh1 = self._instrument.getWaveformData(1)
             #mysum = self._instrument.sumWaveform(self.myWaveformDataCh1)
@@ -353,17 +342,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 # DO NOT READ HW HERE SINCE ALREADY READ IN THE ACQUIRE AVAILABLE ATTRIBUTE READING
 
     def read_WaveformDataCh1(self, attr):
-        #print "PJB in wfd-----------------------------------"
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
         try:
-            #print "PJB in wfd2-----------------------------------", self.myWaveformDataCh1, "***********"
             if self.myWaveformDataCh1 == None:
                self.myWaveformDataCh1 = self._instrument.getWaveformData(1)
             attr.set_value(self.myWaveformDataCh1)
             #data = self._instrument.getWaveformData(1)
             #attr.set_value(data)
             #self.myWaveformSumCh1=self._instrument.sumWaveform(data)
-            #print "PJB in wfd", self.myWaveformSumCh1
             self.myWaveformDataCh1 = None
         except:
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -616,6 +602,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
 #    Start command:
 #------------------------------------------------------------------
+    @PyTango.DebugIt()
     def Start(self):
         self.debug_stream("In " + self.get_name() +  ".Start()")
         self.change_state(PyTango.DevState.RUNNING)
@@ -643,7 +630,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def is_Stop_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_Stop_allowed()")
-        if self.get_state() in [PyTango.DevState.RUNNING]:
+        if self.get_state() in [PyTango.DevState.RUNNING,PyTango.DevState.ON]:
             return True
         else:
             return False
@@ -655,15 +642,16 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         """ Release the communication with the instrument.
         """
         self.debug_stream("In " + self.get_name() +  ".Standby()")
-        try:
-            self._instrument.GoLocal()
-            self._instrument.close()
-            self._instrument = None
-            self.change_state(PyTango.DevState.STANDBY)
-            self.set_status("No connection to instrument")
-        except:
-            self.error_stream("Cannot disconnect from the instrument")
-            self.change_state(PyTango.DevState.FAULT)
+        if(self._instrument is not None):
+            try:
+                self._instrument.GoLocal()
+                self._instrument.close()
+                self._instrument = None
+                self.change_state(PyTango.DevState.STANDBY)
+                self.set_status("No connection to instrument (standby)")
+            except:
+                self.error_stream("Cannot disconnect from the instrument")
+                self.change_state(PyTango.DevState.FAULT)
 
 #------------------------------------------------------------------
 #    Is Standby command allowed
@@ -681,52 +669,19 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def On(self):
         """ Establish communication  with the instrument.
         """
-#        if self.get_state() in [PyTango.DevState.STANDBY]:
-#            self._instrument.GoRemote()
-#            self.change_state(PyTango.DevState.ON)
-#        else:
-        try:
-            self.__buildInstrumentObj()
-            self.__connectInstrumentObj()
-            self.change_state(PyTango.DevState.ON)
-        except:
-            self.error_stream("Cannot connect to the instrument")
-            self.change_state(PyTango.DevState.FAULT)
+        #Undoes the setting to standby, ie makes the connection
+        if not self.connectInstrument():
+            return
 
 #------------------------------------------------------------------
 #    Is On command allowed
 #------------------------------------------------------------------
     def is_On_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_On_allowed()")
-#        if self.get_state() in [PyTango.DevState.OFF,PyTango.DevState.STANDBY]:
-        if self.get_state() in [PyTango.DevState.STANDBY]:
+        if self.get_state() in [PyTango.DevState.STANDBY,PyTango.DevState.RUNNING,PyTango.DevState.ON]:
             return True
         else:
             return False
-
-#------------------------------------------------------------------
-#    Standby command:
-#------------------------------------------------------------------
-#    def Standby(self):
-#        """ Set to local mode. Only works if no polling.
-#        """
-#        try:
-#            print "PJB switching to standby"
-#            self._instrument.GoLocal()
-#            self.change_state(PyTango.DevState.STANDBY)
-#        except:
-#            self.change_state(PyTango.DevState.FAULT)
-
-#------------------------------------------------------------------
-#    Is Standby command allowed
-#------------------------------------------------------------------
-#    def is_Standby_allowed(self):
-#        self.debug_stream("In " + self.get_name() + ".is_Standby_allowed()")
-#        if self.get_state() in [PyTango.DevState.ON]:
-#            return True
-#        else:
-#            return False
-
 
 #==================================================================
 #
@@ -790,7 +745,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "triggered event count",
                 'unit': "events",
                 'label': "Triggered events",
-                'format': "%.0f"
+                'format': "%4.0f"
                 } ],
         'FixedRecordLength':
             [[PyTango.DevBoolean,
@@ -809,7 +764,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'min value': 1000,
                 'max value': 200000,
                 'unit': "Samples",
-                'format': "%.0f"
+                'format': "%4.0f"
                 } ],
         'HScale':
             [[PyTango.DevDouble,
