@@ -53,13 +53,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
           
     def connectInstrument(self):
         self._instrument = None
-        try:
-            self._instrument =  RohdeSchwarzRTOConnection(self.Instrument,self.Port)
-        except Exception,e:
-            self.error_stream("Generic exception: %s"%(e))
-            self.change_state(PyTango.DevState.FAULT)
-            self.set_status("Could not connect to hardware.")
-            return False
+        self._instrument =  RohdeSchwarzRTOConnection(self.Instrument,self.Port)
         try:
             self._instrument.connect()
             self._idn = self._instrument.getIDN()
@@ -68,7 +62,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                               "to the instrument due to: %s"%(self.get_name(),e))
             traceback.print_exc()
             self.change_state(PyTango.DevState.FAULT)
-            self.set_status("Could not connect to hardware.")
+            self.set_status("Could not connect to hardware. Check connection and do INIT.")
             self._instrument = None
             return False
         else:
@@ -110,8 +104,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def init_device(self):
         self.debug_stream("In " + self.get_name() + ".init_device()")
 
-        #for calling always exec hook:
-        #self.state_refresh_ts = 10
         #put in intialise state
         self.change_state(PyTango.DevState.INIT)
         #get properties from tango DB - notably, address of hw
@@ -180,26 +172,28 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def always_executed_hook(self):
 
-        self.debug_stream("In " + self.get_name() + ".always_excuted_hook()")
+        self.debug_stream("In " + self.get_name() + ".always_excuted_hook() with status ", self.get_state())
 
-        #if we put it in standby, do nothing
+        #if we put it in standby, do nothing 
         if self.get_state() in [PyTango.DevState.STANDBY]:
             return
 
-        #this checks if we start ds then switch on hw, eventually makes a connection
-        if not self._instrument:
-            # No connection, try to make one
-            if not self.connectInstrument():
-                return
-            self.set_state(PyTango.DevState.UNKNOWN)
-            self.set_status("Could not communicate with hardware.")
+        #if its in fault do nothing - can only be recovered by an INIT
+        if self.get_state() in [PyTango.DevState.FAULT]:
             return
 
-        #need work here: no protection against timeout if connection lost during operation!
-        #this checks if device is acquiring, ie running
-        tango_status, status_str = self._instrument.getOperCond()
-        self.set_status(status_str)
-        self.set_state(tango_status)
+        #check status, assuming connection OK, and hence also state of connection
+        try:
+            tango_status, status_str = self._instrument.getOperCond()
+            self.set_status(status_str)
+            self.set_state(tango_status)
+        except Exception,e:
+            self.error_stream("In %s.always_executed_hook() Cannot connect "\
+                              "to the instrument due to: %s"%(self.get_name(),e))
+            traceback.print_exc()
+            self.set_status("Lost connection with instrument. Check and do INIT")
+            self.set_state(PyTango.DevState.FAULT)
+            self._instrument = None #PJB needed to prevent client trying to read other attributes
 
 #==================================================================
 #
