@@ -40,6 +40,9 @@ from monitor import Monitor
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     myWaveformDataCh1=None
+    myWaveformDataCh2=None
+    myWaveformDataCh3=None
+    myWaveformDataCh4=None
     myWaveformSumCh1=0
     myWaveformSumCh2=0
     myWaveformSumCh3=0
@@ -120,6 +123,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_RecordLength_write = 0
         self.attr_HScale_read  = 0
         self.attr_HScale_write = 0
+        self.attr_TrigLevel_read  = 0
+        self.attr_TrigLevel_write = 0
 
         #Per channel attributes
         self.attr_WaveformDataCh1_read = 0
@@ -224,14 +229,22 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             #PJB xxx self.push_change_event("AcquireAvailable", int(os))
             attr.set_value(int(os))  
             # PJB xxx need to read wave form and get sum here, if this counter is polled
-            currentdata = self._instrument.getWaveformData(1)
-            currentsum  = self._instrument.sumWaveform(currentdata)
             #need next line for client - client will ask for wform sum, but only
             #acquire available is polled, so need to set global her for wfs to find
             #VH - should really ask for count and waveform data in same command
             #to ensure synchronisation! ie that wf i goes with trigger i
+            currentdata = self._instrument.getWaveformData(1)
             self.myWaveformDataCh1 = currentdata
-            self.myWaveformSumCh1 = currentsum
+            self.myWaveformSumCh1 = self._instrument.sumWaveform(currentdata)
+            currentdata = self._instrument.getWaveformData(2)
+            self.myWaveformDataCh2 = currentdata
+            self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
+            currentdata = self._instrument.getWaveformData(3)
+            self.myWaveformDataCh3 = currentdata
+            self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
+            currentdata = self._instrument.getWaveformData(4)
+            self.myWaveformDataCh4 = currentdata
+            self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
         except Exception,e:
             self.error_stream("Cannot read AcquireAvailable due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -317,8 +330,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
 #    Read WaveformDataCh1 attribute
 #------------------------------------------------------------------
-# SPECIAL CASE FOR CHANNEL 1
 # DO NOT READ HW HERE IF ALREADY READ IN THE ACQUIRE AVAILABLE ATTRIBUTE READING
+# THIS SHOULD BE IN READ ATTRIB HW! CAN IT EVER BE NONE?
     def read_WaveformDataCh1(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
         try:
@@ -341,9 +354,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformDataCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh2()")
         try:
-            data = self._instrument.getWaveformData(2)
-            attr.set_value(data)
-            self.myWaveformSumCh2=self._instrument.sumWaveform(data)
+            if self.myWaveformDataCh2 is None:
+               self.myWaveformDataCh2 = self._instrument.getWaveformData(2)
+            attr.set_value(self.myWaveformDataCh2)
+            self.myWaveformDataCh2 = None
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh2 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -359,9 +373,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformDataCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh3()")
         try:
-            data = self._instrument.getWaveformData(3)
-            attr.set_value(data)
-            self.myWaveformSumCh3=self._instrument.sumWaveform(data)
+            if self.myWaveformDataCh3 is None:
+               self.myWaveformDataCh3 = self._instrument.getWaveformData(3)
+            attr.set_value(self.myWaveformDataCh3)
+            self.myWaveformDataCh3 = None
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -377,9 +392,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformDataCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh4()")
         try:
-            data = self._instrument.getWaveformData(4)
-            attr.set_value(data)
-            self.myWaveformSumCh4=self._instrument.sumWaveform(data)
+            if self.myWaveformDataCh4 is None:
+               self.myWaveformDataCh4 = self._instrument.getWaveformData(4)
+            attr.set_value(self.myWaveformDataCh4)
+            self.myWaveformDataCh4 = None
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -604,6 +620,30 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return True
         else:
             return False
+
+#------------------------------------------------------------------
+#    Read TrigLevel attribute
+#------------------------------------------------------------------
+    def read_TrigLevel(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_TrigLevel()")
+        try:
+            os = self._instrument.getTrigLevel()
+            attr.set_value(os)  
+            attr.set_write_value(os)
+        except:
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+
+#------------------------------------------------------------------
+#    Write TrigLevel attribute
+#------------------------------------------------------------------
+    def write_TrigLevel(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setTrigLevel(data)
+    def is_TrigLevel_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
 #------------------------------------------------------------------
 #    Read Attribute Hardware
 #------------------------------------------------------------------
@@ -794,6 +834,18 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'min value': 0.000001,
                 'max value': 1.0,
                 'format': "%7.4f"
+            } ],
+        'TrigLevel':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "External trigger level",
+                'label': "External trigger level",
+                'unit': "V",
+                'min value': -10.0,
+                'max value': 10.0,
+                'format': "%4.3f"
             } ],
         'OffsetCh1':
             [[PyTango.DevDouble,
