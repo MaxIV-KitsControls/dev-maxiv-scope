@@ -24,7 +24,7 @@ import traceback
 import numpy,struct,copy
 from types import StringType
 from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
-from monitor import Monitor
+#from monitor import Monitor
 
 ##############################################################################
 ## Device States Description
@@ -38,16 +38,6 @@ from monitor import Monitor
 ##############################################################################
 
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
-
-    myWaveformDataCh1=None
-    myWaveformDataCh2=None
-    myWaveformDataCh3=None
-    myWaveformDataCh4=None
-    myWaveformSumCh1=0
-    myWaveformSumCh2=0
-    myWaveformSumCh3=0
-    myWaveformSumCh4=0
-    state_refresh_interval_seconds = 10
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
@@ -126,35 +116,69 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_TrigLevel_read  = 0
         self.attr_TrigLevel_write = 0
 
+        #measurment configuration
+        self.attr_Measurement1_read = 'OFF'
+        self.attr_Measurement2_read = 'OFF'
+        self.attr_Measurement3_read = 'OFF'
+        self.attr_Measurement4_read = 'OFF'
+        self.attr_Measurement5_read = 'OFF'
+        self.attr_Measurement6_read = 'OFF'
+        self.attr_Measurement7_read = 'OFF'
+        self.attr_Measurement8_read = 'OFF'
+        self.attr_Measurement1_write = 'OFF'
+        self.attr_Measurement2_write = 'OFF'
+        self.attr_Measurement3_write = 'OFF'
+        self.attr_Measurement4_write = 'OFF'
+        self.attr_Measurement5_write = 'OFF'
+        self.attr_Measurement6_write = 'OFF'
+        self.attr_Measurement7_write = 'OFF'
+        self.attr_Measurement8_write = 'OFF'
+        #
+        self.attr_Measurement1Res_read = 0
+        self.attr_Measurement2Res_read = 0
+        self.attr_Measurement3Res_read = 0
+        self.attr_Measurement4Res_read = 0
+        self.attr_Measurement5Res_read = 0
+        self.attr_Measurement6Res_read = 0
+        self.attr_Measurement7Res_read = 0
+        self.attr_Measurement8Res_read = 0
+
         #Per channel attributes
-        self.attr_WaveformDataCh1_read = 0
+        self.attr_WaveformDataCh1_read = []
         self.attr_WaveformSumCh1_read = 0
         self.attr_OffsetCh1_read = 0
         self.attr_OffsetCh1_write = 0
         self.attr_VScaleCh1_read = 0
         self.attr_VScaleCh1_write = 0
+        self.attr_CouplingCh1_read = 0
+        self.attr_CouplingCh1_write = 0
         #
-        self.attr_WaveformDataCh2_read = 0
+        self.attr_WaveformDataCh2_read = []
         self.attr_WaveformSumCh2_read = 0
         self.attr_OffsetCh2_read = 0
         self.attr_OffsetCh2_write = 0
         self.attr_VScaleCh2_read = 0
         self.attr_VScaleCh2_write = 0
+        self.attr_CouplingCh2_read = 0
+        self.attr_CouplingCh2_write = 0
         #
-        self.attr_WaveformDataCh3_read = 0
+        self.attr_WaveformDataCh3_read = []
         self.attr_WaveformSumCh3_read = 0
         self.attr_OffsetCh3_read = 0
         self.attr_OffsetCh3_write = 0
         self.attr_VScaleCh3_read = 0
         self.attr_VScaleCh3_write = 0
+        self.attr_CouplingCh3_read = 0
+        self.attr_CouplingCh3_write = 0
         #
-        self.attr_WaveformDataCh4_read = 0
+        self.attr_WaveformDataCh4_read = []
         self.attr_WaveformSumCh4_read = 0
         self.attr_OffsetCh4_read = 0
         self.attr_OffsetCh4_write = 0
         self.attr_VScaleCh4_read = 0
         self.attr_VScaleCh4_write = 0
-
+        self.attr_CouplingCh4_read = 0
+        self.attr_CouplingCh4_write = 0
         
         #---- once initialized, begin the process to connect with the instrument
         #PJB push trigger count
@@ -166,6 +190,12 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #once connected check if already running or not. 
         tango_status, status_str = self._instrument.getOperCond()
         self.change_state(tango_status)
+        
+        #switch to normal, external trigger mode by default
+        self._instrument.SetExternalTrigger()
+
+        #switch to binary readout mode 
+        self._instrument.SetBinaryReadout()
 
         #switch all channels on by default
         self._instrument.AllChannelsOn()
@@ -225,28 +255,39 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_AcquireAvailable(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_AcquireAvailable()")
         try:
+
             os = self._instrument.getCount()
-            #PJB xxx self.push_change_event("AcquireAvailable", int(os))
             attr.set_value(int(os))  
-            # PJB xxx need to read wave form and get sum here, if this counter is polled
-            #need next line for client - client will ask for wform sum, but only
-            #acquire available is polled, so need to set global her for wfs to find
+
+            #PJB self.push_change_event("AcquireAvailable", int(os))
+            #PJB need to read wave form and get sum here, if this counter is polled
             #VH - should really ask for count and waveform data in same command
             #to ensure synchronisation! ie that wf i goes with trigger i
+
             currentdata = self._instrument.getWaveformData(1)
-            self.myWaveformDataCh1 = currentdata
-            self.myWaveformSumCh1 = self._instrument.sumWaveform(currentdata)
+            self.attr_WaveformDataCh1_read = currentdata
+            self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
             currentdata = self._instrument.getWaveformData(2)
-            self.myWaveformDataCh2 = currentdata
-            self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
+            self.attr_WaveformDataCh2_read = currentdata
+            self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
             currentdata = self._instrument.getWaveformData(3)
-            self.myWaveformDataCh3 = currentdata
-            self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
+            self.attr_WaveformDataCh3_read = currentdata
+            self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
             currentdata = self._instrument.getWaveformData(4)
-            self.myWaveformDataCh4 = currentdata
-            self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
+            self.attr_WaveformDataCh4_read = currentdata
+            self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
+
+           #   currentdata = self._instrument.getWaveformData(2)
+           #  self.myWaveformDataCh2 = currentdata
+           #  self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
+           #  currentdata = self._instrument.getWaveformData(3)
+           #  self.myWaveformDataCh3 = currentdata
+           #  self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
+           #  currentdata = self._instrument.getWaveformData(4)
+           #  self.myWaveformDataCh4 = currentdata
+           #  self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
         except Exception,e:
-            self.error_stream("Cannot read AcquireAvailable due to: %s"%e)
+            self.error_stream("Cannot read AcquireAvailable or WaveformData due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
     def is_AcquireAvailable_allowed(self, req_type):
@@ -291,6 +332,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return False
 #------------------------------------------------------------------
 #    Write RecordLength attribute
+#    This also fixes the record length, i.e. so that resolution changes 
 #------------------------------------------------------------------
     def write_RecordLength(self, attr):
         #set to fixed record length first
@@ -304,7 +346,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformSumCh1(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh1()")
         #not read from hw here
-        attr.set_value(self.myWaveformSumCh1)
+        attr.set_value(self.attr_WaveformSumCh1_read)
 
 #------------------------------------------------------------------
 #    Read WaveformSumCh2 attribute
@@ -312,37 +354,41 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformSumCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh2()")
         #not read from hw here
-        attr.set_value(self.myWaveformSumCh2)
+        attr.set_value(self.attr_WaveformSumCh2_read)
 #------------------------------------------------------------------
 #    Read WaveformSumCh3 attribute
 #------------------------------------------------------------------
     def read_WaveformSumCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh3()")
         #not read from hw here
-        attr.set_value(self.myWaveformSumCh3)
+        attr.set_value(self.attr_WaveformSumCh3_read)
 #------------------------------------------------------------------
 #    Read WaveformSumCh4 attribute
 #------------------------------------------------------------------
     def read_WaveformSumCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh4()")
         #not read from hw here
-        attr.set_value(self.myWaveformSumCh4)
+        attr.set_value(self.attr_WaveformSumCh4_read)
 #------------------------------------------------------------------
 #    Read WaveformDataCh1 attribute
 #------------------------------------------------------------------
 # DO NOT READ HW HERE IF ALREADY READ IN THE ACQUIRE AVAILABLE ATTRIBUTE READING
-# THIS SHOULD BE IN READ ATTRIB HW! CAN IT EVER BE NONE?
+# SHOULD WE USE READ ATTRIB HW INSTEAD?
     def read_WaveformDataCh1(self, attr):
+
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
+
         try:
-            if self.myWaveformDataCh1 is None:
-               self.myWaveformDataCh1 = self._instrument.getWaveformData(1)
-            attr.set_value(self.myWaveformDataCh1)
-            self.myWaveformDataCh1 = None
+            if self.attr_WaveformDataCh1_read == []:
+               self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
+            attr.set_value(self.attr_WaveformDataCh1_read)
+            self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(self.attr_WaveformDataCh1_read)
+            self.attr_WaveformDataCh1_read = []
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
     def is_WaveformDataCh1_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -353,15 +399,18 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def read_WaveformDataCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh2()")
+
         try:
-            if self.myWaveformDataCh2 is None:
-               self.myWaveformDataCh2 = self._instrument.getWaveformData(2)
-            attr.set_value(self.myWaveformDataCh2)
-            self.myWaveformDataCh2 = None
+            if self.attr_WaveformDataCh2_read == []:
+               self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
+            attr.set_value(self.attr_WaveformDataCh2_read)
+            self.attr_WaveformDataCh2_read = []
+            self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(self.attr_WaveformDataCh2_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh2 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
     def is_WaveformDataCh2_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -372,15 +421,18 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def read_WaveformDataCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh3()")
+
         try:
-            if self.myWaveformDataCh3 is None:
-               self.myWaveformDataCh3 = self._instrument.getWaveformData(3)
-            attr.set_value(self.myWaveformDataCh3)
-            self.myWaveformDataCh3 = None
+            if self.attr_WaveformDataCh3_read == []:
+               self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
+            attr.set_value(self.attr_WaveformDataCh3_read)
+            self.attr_WaveformDataCh3_read = []
+            self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(self.attr_WaveformDataCh3_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
     def is_WaveformDataCh3_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -391,20 +443,135 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def read_WaveformDataCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh4()")
+
         try:
-            if self.myWaveformDataCh4 is None:
-               self.myWaveformDataCh4 = self._instrument.getWaveformData(4)
-            attr.set_value(self.myWaveformDataCh4)
-            self.myWaveformDataCh4 = None
+            if self.attr_WaveformDataCh4_read == []:
+               self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
+            attr.set_value(self.attr_WaveformDataCh4_read)
+            self.attr_WaveformDataCh4_read = []
+            self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(self.attr_WaveformDataCh4_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
+
     def is_WaveformDataCh4_allowed(self, req_type):
         if self._instrument is not None:
             return True
         else:
             return False
+
+#------------------------------------------------------------------
+#    Read CouplingCh1 attribute
+#------------------------------------------------------------------
+    def read_CouplingCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_CouplingCh1()")
+        try:
+            os = self._instrument.getCoupling(1)
+            attr.set_value(os)  
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read CouplingCh1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read CouplingCh2 attribute
+#------------------------------------------------------------------
+    def read_CouplingCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_CouplingCh2()")
+        try:
+            os = self._instrument.getCoupling(2)
+            attr.set_value(os)  
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read CouplingCh2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read CouplingCh3 attribute
+#------------------------------------------------------------------
+    def read_CouplingCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_CouplingCh3()")
+        try:
+            os = self._instrument.getCoupling(3)
+            attr.set_value(os)  
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read CouplingCh3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read CouplingCh4 attribute
+#------------------------------------------------------------------
+    def read_CouplingCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_CouplingCh4()")
+        try:
+            os = self._instrument.getCoupling(4)
+            attr.set_value(os)  
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read CouplingCh4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write CouplingCh1 attribute
+#------------------------------------------------------------------
+    def write_CouplingCh1(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setCoupling(1,data)
+        except Exception,e:
+            self.error_stream("Cannot configure input coupling due to: %s"%e)
+    def is_CouplingCh1_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Write CouplingCh2 attribute
+#------------------------------------------------------------------
+    def write_CouplingCh2(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setCoupling(2,data)
+        except Exception,e:
+            self.error_stream("Cannot configure input coupling due to: %s"%e)
+    def is_CouplingCh2_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Write CouplingCh3 attribute
+#------------------------------------------------------------------
+    def write_CouplingCh3(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setCoupling(3,data)
+        except Exception,e:
+            self.error_stream("Cannot configure input coupling due to: %s"%e)
+    def is_CouplingCh3_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Write CouplingCh4 attribute
+#------------------------------------------------------------------
+    def write_CouplingCh4(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setCoupling(4,data)
+        except Exception,e:
+            self.error_stream("Cannot configure input coupling due to: %s"%e)
+    def is_CouplingCh4_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+
 #------------------------------------------------------------------
 #    Read OffsetCh1 attribute
 #------------------------------------------------------------------
@@ -418,6 +585,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
 #------------------------------------------------------------------
 #    Read OffsetCh2 attribute
 #------------------------------------------------------------------
@@ -644,8 +812,372 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return True
         else:
             return False
+
+#------------------------------------------------------------------
+#------------------------------------------------------------------
+#
+# MEASUREMENTS
+# ============
+#
+#------------------------------------------------------------------
+#    Read Measurement1 attribute
+#------------------------------------------------------------------
+    def read_Measurement1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement1()")
+        try:
+            self.attr_Measurement1_read = self._instrument.getMeasurement(1)
+            attr.set_value(self.attr_Measurement1_read)  
+            attr.set_write_value(self.attr_Measurement1_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement1 attribute
+#------------------------------------------------------------------
+    def write_Measurement1(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(1,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement1 due to: %s"%e)
+    def is_Measurement1_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement2 attribute
+#------------------------------------------------------------------
+    def read_Measurement2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement2()")
+        try:
+            self.attr_Measurement2_read = self._instrument.getMeasurement(2)
+            attr.set_value(self.attr_Measurement2_read)  
+            attr.set_write_value(self.attr_Measurement2_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement2 attribute
+#------------------------------------------------------------------
+    def write_Measurement2(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(2,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement2 due to: %s"%e)
+    def is_Measurement2_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement3 attribute
+#------------------------------------------------------------------
+    def read_Measurement3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement3()")
+        try:
+            self.attr_Measurement3_read = self._instrument.getMeasurement(3)
+            attr.set_value(self.attr_Measurement3_read)  
+            attr.set_write_value(self.attr_Measurement3_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement3 attribute
+#------------------------------------------------------------------
+    def write_Measurement3(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(3,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement3 due to: %s"%e)
+    def is_Measurement3_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement4 attribute
+#------------------------------------------------------------------
+    def read_Measurement4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement4()")
+        try:
+            self.attr_Measurement4_read = self._instrument.getMeasurement(4)
+            attr.set_value(self.attr_Measurement4_read)  
+            attr.set_write_value(self.attr_Measurement4_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement4 attribute
+#------------------------------------------------------------------
+    def write_Measurement4(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(4,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement4 due to: %s"%e)
+    def is_Measurement4_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement5 attribute
+#------------------------------------------------------------------
+    def read_Measurement5(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement5()")
+        try:
+            self.attr_Measurement5_read = self._instrument.getMeasurement(5)
+            attr.set_value(self.attr_Measurement5_read)  
+            attr.set_write_value(self.attr_Measurement5_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement5 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement5 attribute
+#------------------------------------------------------------------
+    def write_Measurement5(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(5,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement5 due to: %s"%e)
+    def is_Measurement5_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement6 attribute
+#------------------------------------------------------------------
+    def read_Measurement6(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement6()")
+        try:
+            self.attr_Measurement6_read = self._instrument.getMeasurement(6)
+            attr.set_value(self.attr_Measurement6_read)  
+            attr.set_write_value(self.attr_Measurement6_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement6 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement6 attribute
+#------------------------------------------------------------------
+    def write_Measurement6(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(6,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement6 due to: %s"%e)
+    def is_Measurement6_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement7 attribute
+#------------------------------------------------------------------
+    def read_Measurement7(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement7()")
+        try:
+            self.attr_Measurement7_read = self._instrument.getMeasurement(7)
+            attr.set_value(self.attr_Measurement7_read)  
+            attr.set_write_value(self.attr_Measurement7_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement7 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement7 attribute
+#------------------------------------------------------------------
+    def write_Measurement7(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(7,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement7 due to: %s"%e)
+    def is_Measurement7_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement8 attribute
+#------------------------------------------------------------------
+    def read_Measurement8(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement8()")
+        try:
+            self.attr_Measurement8_read = self._instrument.getMeasurement(8)
+            attr.set_value(self.attr_Measurement8_read)  
+            attr.set_write_value(self.attr_Measurement8_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement8 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement8 attribute
+#------------------------------------------------------------------
+    def write_Measurement8(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurement(8,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement8 due to: %s"%e)
+    def is_Measurement8_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement1Res attribute
+#------------------------------------------------------------------
+    def read_Measurement1Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement1Res()")
+        try:
+            os = self._instrument.getMeasurementRes(1)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement1Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement1_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement2Res attribute
+#------------------------------------------------------------------
+    def read_Measurement2Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement2Res()")
+        try:
+            os = self._instrument.getMeasurementRes(2)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement2Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement2_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement3Res attribute
+#------------------------------------------------------------------
+    def read_Measurement3Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement3Res()")
+        try:
+            os = self._instrument.getMeasurementRes(3)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement3Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement3_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement4Res attribute
+#------------------------------------------------------------------
+    def read_Measurement4Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement4Res()")
+        try:
+            os = self._instrument.getMeasurementRes(4)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement4Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement4_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement5Res attribute
+#------------------------------------------------------------------
+    def read_Measurement5Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement5Res()")
+        try:
+            os = self._instrument.getMeasurementRes(5)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes5 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement5Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement5_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement6Res attribute
+#------------------------------------------------------------------
+    def read_Measurement6Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement6Res()")
+        try:
+            os = self._instrument.getMeasurementRes(6)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes6 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement6Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement6_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement7Res attribute
+#------------------------------------------------------------------
+    def read_Measurement7Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement7Res()")
+        try:
+            os = self._instrument.getMeasurementRes(7)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes7 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement7Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement7_read != 'OFF':
+            return True
+        else:
+            return False
+#------------------------------------------------------------------
+#    Read Measurement8Res attribute
+#------------------------------------------------------------------
+    def read_Measurement8Res(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement8Res()")
+        try:
+            os = self._instrument.getMeasurementRes(8)
+            attr.set_value(os)  
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementRes8 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+    def is_Measurement8Res_allowed(self, req_type):
+        if self._instrument is not None and self.attr_Measurement8_read != 'OFF':
+            return True
+        else:
+            return False
+
+
 #------------------------------------------------------------------
 #    Read Attribute Hardware
+#    Want acquire available and waveform data to be read in order so do it here to be sure
+#    Missing some exception handling?
 #------------------------------------------------------------------
     def read_attr_hardware(self, data):
         self.debug_stream("In " + self.get_name() + ".read_attr_hardware()")
@@ -991,6 +1523,167 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "WaveformData channel 4",
                 'label': "Waveform Data channel 4",
             } ],
+        'Measurement1':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 1",
+                'label': "Configure measurement 1",
+            } ],
+        'Measurement2':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 2",
+                'label': "Configure measurement 2",
+            } ],
+        'Measurement3':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 3",
+                'label': "Configure measurement 3",
+            } ],
+        'Measurement4':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 4",
+                'label': "Configure measurement 4",
+            } ],
+        'Measurement5':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 5",
+                'label': "Configure measurement 5",
+            } ],
+        'Measurement6':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 6",
+                'label': "Configure measurement 6",
+            } ],
+        'Measurement7':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 7",
+                'label': "Configure measurement 7",
+            } ],
+        'Measurement8':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Configure measurement 8",
+                'label': "Configure measurement 8",
+            } ],
+        'Measurement1Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 1",
+                'label': "Result measurement 1",
+            } ],
+        'Measurement2Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 2",
+                'label': "Result measurement 2",
+            } ],
+        'Measurement3Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 3",
+                'label': "Result measurement 3",
+            } ],
+        'Measurement4Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 4",
+                'label': "Result measurement 4",
+            } ],
+        'Measurement5Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 5",
+                'label': "Result measurement 5",
+            } ],
+        'Measurement6Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 6",
+                'label': "Result measurement 6",
+            } ],
+        'Measurement7Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 7",
+                'label': "Result measurement 7",
+            } ],
+        'Measurement8Res':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Result measurement 8",
+                'label': "Result measurement 8",
+            } ],
+        'CouplingCh1':
+            [[PyTango.DevString,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Coupling channel 1",
+                'label': "Coupling channel 1",
+                } ],
+        'CouplingCh2':
+            [[PyTango.DevString,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Coupling channel 2",
+                'label': "Coupling channel 2",
+                } ],
+        'CouplingCh3':
+            [[PyTango.DevString,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Coupling channel 3",
+                'label': "Coupling channel 3",
+                } ],
+        'CouplingCh4':
+            [[PyTango.DevString,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Coupling channel 4",
+                'label': "Coupling channel 4",
+                } ],
+        
         }
 
 
