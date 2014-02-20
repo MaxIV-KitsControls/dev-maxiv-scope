@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding:utf-8 -*- 
+# -*- coding:utf-8 -*-
 
 ##############################################################################
 ## license :
@@ -39,50 +39,60 @@ from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
+    _instrument = None
+
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
         if newstate != self.get_state():
             self.set_state(newstate)
-          
+
     def connectInstrument(self):
         self._idn = "unknown"
-        self._instrument =  RohdeSchwarzRTOConnection(self.Instrument,self.Port)
-        try:
-            self._instrument.connect()
-            self._idn = self._instrument.getIDN()
-        #Good to catch timeout specifically
-        except socket.timeout:
-            self.set_status("Cannot connect to instrument (timeout). Check and do INIT")
-            self.set_state(PyTango.DevState.FAULT)
-            self._instrument = None #PJB needed to prevent client trying to read other attributes
-        except Exception,e:
-            self.error_stream("In %s.connectInstrument() Cannot connect due to: %s"%(self.get_name(),e))
-            traceback.print_exc()
-            self.change_state(PyTango.DevState.FAULT)
-            self.set_status("Could not connect to hardware. Check connection and do INIT.")
-            self._instrument = None
-            return False
-        else:
-            self.info_stream("In %s.connectInstrument() Connected to the instrument "\
-                             "and identified as: %s"%(self.get_name(),repr(self._idn)))
-            self.change_state(PyTango.DevState.ON)
-            return True
 
-#        def startMonitoring(self):
-#            #start a thread to check trigger
-#            print "START MON"
-#            self.monitorThread.start()
-        
-#        def endMonitoring(self):
-#            #end thread to check trigger
-#            print "STOP MON"
-#            self.monitor.terminate()
-#            self.monitorThread.join()
+        if not self._instrument:
+            self._instrument =  RohdeSchwarzRTOConnection(self.Instrument)
+            print "connectInstrument"
+            try:
+                self._instrument.connect()
+                #self._idn = self._instrument.getIDN()
+            #Good to catch timeout specifically
+            except socket.timeout:
+                self.set_status("Cannot connect to instrument (timeout). Check and do INIT")
+                print "Cannot connect to instrument (timeout). Check and do INIT"
+                self.set_state(PyTango.DevState.FAULT)
+                self._instrument = None #PJB needed to prevent client trying to read other attributes
+                return False
+            except Exception,e:
+                self.error_stream("In %s.connectInstrument() Cannot connect due to: %s"%(self.get_name(),e))
+                traceback.print_exc()
+                self.change_state(PyTango.DevState.FAULT)
+                self.set_status("Could not connect to hardware. Check connection and do INIT.")
+                print "Could not connect to hardware. Check connection and do INIT."
+                self._instrument = None
+                return False
+            else:
+                self.info_stream("In %s.connectInstrument() Connected to the instrument "\
+                                 "and identified as: %s"%(self.get_name(),repr(self._idn)))
+                self.change_state(PyTango.DevState.ON)
+                return True
+            print "done"
+
+    #        def startMonitoring(self):
+    #            #start a thread to check trigger
+    #            print "START MON"
+    #            self.monitorThread.start()
+
+    #        def endMonitoring(self):
+    #            #end thread to check trigger
+    #            print "STOP MON"
+    #            self.monitor.terminate()
+    #            self.monitorThread.join()
 
 #------------------------------------------------------------------
 #    Device constructor
 #------------------------------------------------------------------
     def __init__(self,cl, name):
+        print "__init__", id(self)
         PyTango.Device_4Impl.__init__(self,cl,name)
         self.debug_stream("In " + self.get_name() + ".__init__()")
         RohdeSchwarzRTO.init_device(self)
@@ -133,6 +143,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_Measurement6_write = 'OFF'
         self.attr_Measurement7_write = 'OFF'
         self.attr_Measurement8_write = 'OFF'
+
+        self._measurement_wait = 1  # time to block measurement result reading after
+                                    # changing the measurement type (prevents hang)
+        self._measurement1_changed = time.time()
         #
         self.attr_Measurement1Res_read = 0
         self.attr_Measurement2Res_read = 0
@@ -179,22 +193,23 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_VScaleCh4_write = 0
         self.attr_CouplingCh4_read = 0
         self.attr_CouplingCh4_write = 0
-        
+
         #---- once initialized, begin the process to connect with the instrument
         #PJB push trigger count
         #self.set_change_event("AcquireAvailable", True)
-        self._instrument = None
+        #self._instrument = None
+        print "init connect"
         if not self.connectInstrument():
             return
 
-        #once connected check if already running or not. 
+        #once connected check if already running or not.
         tango_status, status_str = self._instrument.getOperCond()
         self.change_state(tango_status)
-        
-        #switch to normal, external trigger mode by default
-        self._instrument.SetExternalTrigger()
 
-        #switch to binary readout mode 
+        #switch to normal, external trigger mode by default
+        self._instrument.setTriggerSource(1, "EXT")
+
+        #switch to binary readout mode
         self._instrument.SetBinaryReadout()
 
         #switch all channels on by default
@@ -204,6 +219,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #self.mymonitor = Monitor()
         #self.event_thread = Thread(target=self.mymonitor.run,args=(100,self._instrument))
 
+        # Stored data needed for generating the time axis scale
+        self._record_length = 5000
+        self._hscale = 0.001
+        self._recalc_time_scale()
+
+    def _recalc_time_scale(self):
+        self._time_scale = numpy.linspace(0, self._hscale, self._record_length)
+
 #------------------------------------------------------------------
 #    Always excuted hook method
 #------------------------------------------------------------------
@@ -211,7 +234,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         self.debug_stream("In " + self.get_name() + ".always_excuted_hook() with status ", self.get_state())
 
-        #if we put it in standby, do nothing 
+        #if we put it in standby, do nothing
         if self.get_state() in [PyTango.DevState.STANDBY]:
             return
 
@@ -257,7 +280,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         try:
 
             os = self._instrument.getCount()
-            attr.set_value(int(os))  
+            attr.set_value(int(os))
 
             #PJB self.push_change_event("AcquireAvailable", int(os))
             #PJB need to read wave form and get sum here, if this counter is polled
@@ -332,7 +355,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return False
 #------------------------------------------------------------------
 #    Write RecordLength attribute
-#    This also fixes the record length, i.e. so that resolution changes 
+#    This also fixes the record length, i.e. so that resolution changes
 #------------------------------------------------------------------
     def write_RecordLength(self, attr):
         #set to fixed record length first
@@ -340,6 +363,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #now set value
         data = attr.get_write_value()
         self._instrument.setRecordLength(data)
+        self._record_length = data
+        self._recalc_time_scale()
+
 #------------------------------------------------------------------
 #    Read WaveformSumCh1 attribute
 #------------------------------------------------------------------
@@ -369,6 +395,23 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh4()")
         #not read from hw here
         attr.set_value(self.attr_WaveformSumCh4_read)
+
+#------------------------------------------------------------------
+#    Read TimeScale attribute
+#------------------------------------------------------------------
+    def read_TimeScale(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_TimeScale()")
+        # TimeScale is a "virtual" attribute that is calculated from
+        # the size of the time window (HScale) and the number of data
+        # points (RecordLength).
+        attr.set_value(self._time_scale)
+
+    def is_TimeScale_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
 #------------------------------------------------------------------
 #    Read WaveformDataCh1 attribute
 #------------------------------------------------------------------
@@ -469,7 +512,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_CouplingCh1()")
         try:
             os = self._instrument.getCoupling(1)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read CouplingCh1 due to: %s"%e)
@@ -482,7 +525,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_CouplingCh2()")
         try:
             os = self._instrument.getCoupling(2)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read CouplingCh2 due to: %s"%e)
@@ -495,7 +538,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_CouplingCh3()")
         try:
             os = self._instrument.getCoupling(3)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read CouplingCh3 due to: %s"%e)
@@ -508,7 +551,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_CouplingCh4()")
         try:
             os = self._instrument.getCoupling(4)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read CouplingCh4 due to: %s"%e)
@@ -579,7 +622,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_OffsetCh1()")
         try:
             os = self._instrument.getOffset(1)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
@@ -593,7 +636,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_OffsetCh2()")
         try:
             os = self._instrument.getOffset(2)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
@@ -606,7 +649,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_OffsetCh3()")
         try:
             os = self._instrument.getOffset(3)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read OffsetCh3 due to: %s"%e)
@@ -619,7 +662,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_OffsetCh4()")
         try:
             os = self._instrument.getOffset(4)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read OffsetCh4 due to: %s"%e)
@@ -676,7 +719,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh1()")
         try:
             os = self._instrument.getVScale(1)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read VScaleCh1 due to: %s"%e)
@@ -689,7 +732,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh2()")
         try:
             os = self._instrument.getVScale(2)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read VScaleCh2 due to: %s"%e)
@@ -702,7 +745,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh3()")
         try:
             os = self._instrument.getVScale(3)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read VScaleCh3 due to: %s"%e)
@@ -715,7 +758,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh4()")
         try:
             os = self._instrument.getVScale(4)
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
             self.error_stream("Cannot read VScaleCh4 due to: %s"%e)
@@ -772,7 +815,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_HScale()")
         try:
             os = self._instrument.getHScale()
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except:
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -783,11 +826,64 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def write_HScale(self, attr):
         data = attr.get_write_value()
         self._instrument.setHScale(data)
+        self._hscale = data
+        self._recalc_time_scale()
+
     def is_HScale_allowed(self, req_type):
         if self._instrument is not None:
             return True
         else:
             return False
+
+#------------------------------------------------------------------
+#    Read Trig1Source attribute
+#------------------------------------------------------------------
+    def read_Trig1Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Trig1Source()")
+        try:
+            os = self._instrument.getTriggerSource(1)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except:
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+
+#------------------------------------------------------------------
+#    Write Trig1Source attribute
+#------------------------------------------------------------------
+    def write_Trig1Source(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setTriggerSource(1, data)
+    def is_Trig1Source_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+
+#------------------------------------------------------------------
+#    Read Trig1Mode attribute
+#------------------------------------------------------------------
+    def read_Trig1Mode(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Trig1Mode()")
+        try:
+            os = self._instrument.getTriggerMode(1)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except:
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+
+#------------------------------------------------------------------
+#    Write Trig1Mode attribute
+#------------------------------------------------------------------
+    def write_Trig1Mode(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setTriggerMode(1, data)
+    def is_Trig1Mode_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
 
 #------------------------------------------------------------------
 #    Read TrigLevel attribute
@@ -796,7 +892,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_TrigLevel()")
         try:
             os = self._instrument.getTrigLevel()
-            attr.set_value(os)  
+            attr.set_value(os)
             attr.set_write_value(os)
         except:
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -826,7 +922,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement1()")
         try:
             self.attr_Measurement1_read = self._instrument.getMeasurement(1)
-            attr.set_value(self.attr_Measurement1_read)  
+            attr.set_value(self.attr_Measurement1_read)
             attr.set_write_value(self.attr_Measurement1_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement1 due to: %s"%e)
@@ -841,6 +937,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.setMeasurement(1,data)
         except Exception,e:
             self.error_stream("Cannot configure Measurement1 due to: %s"%e)
+        self._measurement1_changed = time.time()
+
     def is_Measurement1_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -853,7 +951,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement2()")
         try:
             self.attr_Measurement2_read = self._instrument.getMeasurement(2)
-            attr.set_value(self.attr_Measurement2_read)  
+            attr.set_value(self.attr_Measurement2_read)
             attr.set_write_value(self.attr_Measurement2_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement2 due to: %s"%e)
@@ -880,7 +978,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement3()")
         try:
             self.attr_Measurement3_read = self._instrument.getMeasurement(3)
-            attr.set_value(self.attr_Measurement3_read)  
+            attr.set_value(self.attr_Measurement3_read)
             attr.set_write_value(self.attr_Measurement3_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement3 due to: %s"%e)
@@ -907,7 +1005,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement4()")
         try:
             self.attr_Measurement4_read = self._instrument.getMeasurement(4)
-            attr.set_value(self.attr_Measurement4_read)  
+            attr.set_value(self.attr_Measurement4_read)
             attr.set_write_value(self.attr_Measurement4_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement4 due to: %s"%e)
@@ -934,7 +1032,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement5()")
         try:
             self.attr_Measurement5_read = self._instrument.getMeasurement(5)
-            attr.set_value(self.attr_Measurement5_read)  
+            attr.set_value(self.attr_Measurement5_read)
             attr.set_write_value(self.attr_Measurement5_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement5 due to: %s"%e)
@@ -961,7 +1059,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement6()")
         try:
             self.attr_Measurement6_read = self._instrument.getMeasurement(6)
-            attr.set_value(self.attr_Measurement6_read)  
+            attr.set_value(self.attr_Measurement6_read)
             attr.set_write_value(self.attr_Measurement6_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement6 due to: %s"%e)
@@ -988,7 +1086,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement7()")
         try:
             self.attr_Measurement7_read = self._instrument.getMeasurement(7)
-            attr.set_value(self.attr_Measurement7_read)  
+            attr.set_value(self.attr_Measurement7_read)
             attr.set_write_value(self.attr_Measurement7_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement7 due to: %s"%e)
@@ -1015,7 +1113,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement8()")
         try:
             self.attr_Measurement8_read = self._instrument.getMeasurement(8)
-            attr.set_value(self.attr_Measurement8_read)  
+            attr.set_value(self.attr_Measurement8_read)
             attr.set_write_value(self.attr_Measurement8_read)
         except Exception,e:
             self.error_stream("Cannot read Measurement8 due to: %s"%e)
@@ -1036,6 +1134,248 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         else:
             return False
 
+
+#------------------------------------------------------------------
+#    Read Measurement1Source attribute
+#------------------------------------------------------------------
+    def read_Measurement1Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement1Source()")
+        try:
+            self.attr_Measurement1Source_read = self._instrument.getMeasurementSource(1)
+            attr.set_value(self.attr_Measurement1Source_read)
+            attr.set_write_value(self.attr_Measurement1Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement1Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement1Source attribute
+#------------------------------------------------------------------
+    def write_Measurement1Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(1,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement1Source due to: %s"%e)
+        self._measurement1_changed = time.time()
+
+    def is_Measurement1_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement2Source attribute
+#------------------------------------------------------------------
+    def read_Measurement2Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement2Source()")
+        try:
+            self.attr_Measurement2Source_read = self._instrument.getMeasurementSource(2)
+            attr.set_value(self.attr_Measurement2Source_read)
+            attr.set_write_value(self.attr_Measurement2Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement2Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement2Source attribute
+#------------------------------------------------------------------
+    def write_Measurement2Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(2,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement2Source due to: %s"%e)
+        self._measurement2_changed = time.time()
+
+    def is_Measurement2_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement3Source attribute
+#------------------------------------------------------------------
+    def read_Measurement3Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement3Source()")
+        try:
+            self.attr_Measurement3Source_read = self._instrument.getMeasurementSource(3)
+            attr.set_value(self.attr_Measurement3Source_read)
+            attr.set_write_value(self.attr_Measurement3Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement3Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement3Source attribute
+#------------------------------------------------------------------
+    def write_Measurement3Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(3,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement3Source due to: %s"%e)
+        self._measurement3_changed = time.time()
+
+    def is_Measurement3_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement4Source attribute
+#------------------------------------------------------------------
+    def read_Measurement4Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement4Source()")
+        try:
+            self.attr_Measurement4Source_read = self._instrument.getMeasurementSource(4)
+            attr.set_value(self.attr_Measurement4Source_read)
+            attr.set_write_value(self.attr_Measurement4Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement4Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement4Source attribute
+#------------------------------------------------------------------
+    def write_Measurement4Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(4,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement4Source due to: %s"%e)
+        self._measurement4_changed = time.time()
+
+    def is_Measurement4_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement5Source attribute
+#------------------------------------------------------------------
+    def read_Measurement5Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement5Source()")
+        try:
+            self.attr_Measurement5Source_read = self._instrument.getMeasurementSource(5)
+            attr.set_value(self.attr_Measurement5Source_read)
+            attr.set_write_value(self.attr_Measurement5Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement5Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement5Source attribute
+#------------------------------------------------------------------
+    def write_Measurement5Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(5,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement5Source due to: %s"%e)
+        self._measurement5_changed = time.time()
+
+    def is_Measurement5_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement6Source attribute
+#------------------------------------------------------------------
+    def read_Measurement6Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement6Source()")
+        try:
+            self.attr_Measurement6Source_read = self._instrument.getMeasurementSource(6)
+            attr.set_value(self.attr_Measurement6Source_read)
+            attr.set_write_value(self.attr_Measurement6Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement6Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement6Source attribute
+#------------------------------------------------------------------
+    def write_Measurement6Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(6,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement6Source due to: %s"%e)
+        self._measurement6_changed = time.time()
+
+    def is_Measurement6_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement7Source attribute
+#------------------------------------------------------------------
+    def read_Measurement7Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement7Source()")
+        try:
+            self.attr_Measurement7Source_read = self._instrument.getMeasurementSource(7)
+            attr.set_value(self.attr_Measurement7Source_read)
+            attr.set_write_value(self.attr_Measurement7Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement7Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement7Source attribute
+#------------------------------------------------------------------
+    def write_Measurement7Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(7,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement7Source due to: %s"%e)
+        self._measurement7_changed = time.time()
+
+    def is_Measurement7_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read Measurement8Source attribute
+#------------------------------------------------------------------
+    def read_Measurement8Source(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_Measurement8Source()")
+        try:
+            self.attr_Measurement8Source_read = self._instrument.getMeasurementSource(8)
+            attr.set_value(self.attr_Measurement8Source_read)
+            attr.set_write_value(self.attr_Measurement8Source_read)
+        except Exception,e:
+            self.error_stream("Cannot read Measurement8Source due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write Measurement8Source attribute
+#------------------------------------------------------------------
+    def write_Measurement8Source(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementSource(8,data)
+        except Exception,e:
+            self.error_stream("Cannot configure Measurement8Source due to: %s"%e)
+        self._measurement8_changed = time.time()
+
+    def is_Measurement8_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+
 #------------------------------------------------------------------
 #    Read Measurement1Res attribute
 #------------------------------------------------------------------
@@ -1043,13 +1383,18 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement1Res()")
         try:
             os = self._instrument.getMeasurementRes(1)
-            attr.set_value(os)  
+            print "measurement 1 result", os
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
     def is_Measurement1Res_allowed(self, req_type):
-        if self._instrument is not None and self.attr_Measurement1_read != 'OFF':
+        recently_changed = (self._measurement1_changed + self._measurement_wait) > time.time()
+        if recently_changed:
+            print "recently changed", self._measurement1_changed
+        if self._instrument is not None and (not recently_changed) and self.attr_Measurement1_read != 'OFF':
             return True
         else:
             return False
@@ -1060,7 +1405,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement2Res()")
         try:
             os = self._instrument.getMeasurementRes(2)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes2 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1077,7 +1422,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement3Res()")
         try:
             os = self._instrument.getMeasurementRes(3)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1094,7 +1439,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement4Res()")
         try:
             os = self._instrument.getMeasurementRes(4)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1111,7 +1456,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement5Res()")
         try:
             os = self._instrument.getMeasurementRes(5)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes5 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1128,7 +1473,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement6Res()")
         try:
             os = self._instrument.getMeasurementRes(6)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes6 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1145,7 +1490,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement7Res()")
         try:
             os = self._instrument.getMeasurementRes(7)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes7 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1162,7 +1507,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement8Res()")
         try:
             os = self._instrument.getMeasurementRes(8)
-            attr.set_value(os)  
+            attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes8 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1217,7 +1562,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.change_state(PyTango.DevState.ON)
         self._instrument.StopAcq()
         #self.mymonitor.terminate()
-                
+
 #------------------------------------------------------------------
 #    Is Stop command allowed
 #------------------------------------------------------------------
@@ -1263,7 +1608,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         """ Establish communication  with the instrument.
         """
         #Undoes the setting to standby, ie makes the connection
-        self.connectInstrument()
+        #self.connectInstrument()
 
 #------------------------------------------------------------------
 #    Is On command allowed
@@ -1351,7 +1696,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Record length",
                 'label': "Record length",
                 'min value': 1000,
-                'max value': 200000,
+                'max value': 1000000,
                 'unit': "Samples",
                 'format': "%4.0f"
                 } ],
@@ -1363,10 +1708,29 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Time scale",
                 'label': "Horizontal (time) scale",
                 'unit': "s",
-                'min value': 0.000001,
+                'min value': 1e-8,
                 'max value': 1.0,
                 'format': "%7.4f"
             } ],
+
+        'Trig1Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source input for trigger 1",
+                'label': "Trigger 1 source",
+            } ],
+
+        'Trig1Mode':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Mode for trigger 1",
+                'label': "Trigger 1 mode",
+            } ],
+
         'TrigLevel':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -1379,6 +1743,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'max value': 10.0,
                 'format': "%4.3f"
             } ],
+
         'OffsetCh1':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -1399,6 +1764,14 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "V",
                 'format': "%4.3f"
             } ],
+        'TimeScale':
+            [[PyTango.DevDouble,
+            PyTango.SPECTRUM,
+            PyTango.READ, 200000],
+            {
+                'description': "Time scale",
+                'label': "Time scale",
+            } ],
         'WaveformSumCh1':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -1413,7 +1786,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.READ, 200000],
             {
                 'description': "WaveformData channel 1",
-                'label': "Waveform Data channel 1",
+                'label': "Channel 1",
             } ],
         'OffsetCh2':
             [[PyTango.DevDouble,
@@ -1449,7 +1822,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.READ, 200000],
             {
                 'description': "WaveformData channel 2",
-                'label': "Waveform Data channel 2",
+                'label': "Channel 2",
             } ],
         'OffsetCh3':
             [[PyTango.DevDouble,
@@ -1485,7 +1858,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.READ, 200000],
             {
                 'description': "WaveformData channel 3",
-                'label': "Waveform Data channel 3",
+                'label': "Channel 3",
             } ],
         'OffsetCh4':
             [[PyTango.DevDouble,
@@ -1521,7 +1894,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.READ, 200000],
             {
                 'description': "WaveformData channel 4",
-                'label': "Waveform Data channel 4",
+                'label': "Channel 4",
             } ],
         'Measurement1':
             [[PyTango.DevString,
@@ -1587,6 +1960,79 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Configure measurement 8",
                 'label': "Configure measurement 8",
             } ],
+
+        'Measurement1Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 1",
+                'label': "Source measurement 1",
+            } ],
+
+        'Measurement2Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 2",
+                'label': "Source measurement 2",
+            } ],
+
+        'Measurement3Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 3",
+                'label': "Source measurement 3",
+            } ],
+
+        'Measurement4Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 4",
+                'label': "Source measurement 4",
+            } ],
+
+        'Measurement5Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 5",
+                'label': "Source measurement 5",
+            } ],
+
+        'Measurement6Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 6",
+                'label': "Source measurement 6",
+            } ],
+
+        'Measurement7Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 7",
+                'label': "Source measurement 7",
+            } ],
+
+        'Measurement8Source':
+            [[PyTango.DevString,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Source measurement 8",
+                'label': "Source measurement 8",
+            } ],
+
         'Measurement1Res':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -1594,6 +2040,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 1",
                 'label': "Result measurement 1",
+                'format': "%.3e"
             } ],
         'Measurement2Res':
             [[PyTango.DevDouble,
@@ -1602,6 +2049,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 2",
                 'label': "Result measurement 2",
+                'format': "%.3e"
             } ],
         'Measurement3Res':
             [[PyTango.DevDouble,
@@ -1610,6 +2058,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 3",
                 'label': "Result measurement 3",
+                'format': "%.3e"
             } ],
         'Measurement4Res':
             [[PyTango.DevDouble,
@@ -1618,6 +2067,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 4",
                 'label': "Result measurement 4",
+                'format': "%.3e"
             } ],
         'Measurement5Res':
             [[PyTango.DevDouble,
@@ -1626,6 +2076,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 5",
                 'label': "Result measurement 5",
+                'format': "%.3e"
             } ],
         'Measurement6Res':
             [[PyTango.DevDouble,
@@ -1634,6 +2085,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 6",
                 'label': "Result measurement 6",
+                'format': "%.3e"
             } ],
         'Measurement7Res':
             [[PyTango.DevDouble,
@@ -1642,6 +2094,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 7",
                 'label': "Result measurement 7",
+                'format': "%.3e"
             } ],
         'Measurement8Res':
             [[PyTango.DevDouble,
@@ -1650,6 +2103,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Result measurement 8",
                 'label': "Result measurement 8",
+                'format': "%.3e"
             } ],
         'CouplingCh1':
             [[PyTango.DevString,
@@ -1683,7 +2137,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Coupling channel 4",
                 'label': "Coupling channel 4",
                 } ],
-        
+
         }
 
 
@@ -1692,6 +2146,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
 #    RohdeSchwarzRTOClass Constructor
 #------------------------------------------------------------------
     def __init__(self, name):
+        print "__init__ class"
         PyTango.DeviceClass.__init__(self, name)
         self.set_type(name);
         print "In RohdeSchwarzRTO Class  constructor"
@@ -1704,7 +2159,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
 def main():
     try:
         py = PyTango.Util(sys.argv)
-        py.add_class(RohdeSchwarzRTOClass,RohdeSchwarzRTO,'RohdeSchwarzRTO')
+        py.add_class(RohdeSchwarzRTOClass, RohdeSchwarzRTO, 'RohdeSchwarzRTO')
 
         U = PyTango.Util.instance()
         U.server_init()
