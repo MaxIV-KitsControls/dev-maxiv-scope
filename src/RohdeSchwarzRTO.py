@@ -17,7 +17,6 @@ __docformat__ = 'restructuredtext'
 
 import PyTango
 import sys
-import socket
 from threading import Thread
 import time
 import traceback
@@ -51,18 +50,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         if not self._instrument:
             self._instrument =  RohdeSchwarzRTOConnection(self.Instrument)
-            print "connectInstrument"
             try:
                 self._instrument.connect()
-                #self._idn = self._instrument.getIDN()
-            #Good to catch timeout specifically
-            except socket.timeout:
-                self.set_status("Cannot connect to instrument (timeout). Check and do INIT")
-                print "Cannot connect to instrument (timeout). Check and do INIT"
-                self.set_state(PyTango.DevState.FAULT)
-                self._instrument = None #PJB needed to prevent client trying to read other attributes
-                return False
-            except Exception,e:
+                self._idn = self._instrument.getIDN()
+                #Good to catch timeout specifically
+            except Exception, e:
                 self.error_stream("In %s.connectInstrument() Cannot connect due to: %s"%(self.get_name(),e))
                 traceback.print_exc()
                 self.change_state(PyTango.DevState.FAULT)
@@ -75,7 +67,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                                  "and identified as: %s"%(self.get_name(),repr(self._idn)))
                 self.change_state(PyTango.DevState.ON)
                 return True
-            print "done"
 
     #        def startMonitoring(self):
     #            #start a thread to check trigger
@@ -92,7 +83,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    Device constructor
 #------------------------------------------------------------------
     def __init__(self,cl, name):
-        print "__init__", id(self)
         PyTango.Device_4Impl.__init__(self,cl,name)
         self.debug_stream("In " + self.get_name() + ".__init__()")
         RohdeSchwarzRTO.init_device(self)
@@ -198,7 +188,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #PJB push trigger count
         #self.set_change_event("AcquireAvailable", True)
         #self._instrument = None
-        print "init connect"
         if not self.connectInstrument():
             return
 
@@ -225,7 +214,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._recalc_time_scale()
 
     def _recalc_time_scale(self):
-        self._time_scale = numpy.linspace(0, self._hscale, self._record_length)
+        self._time_scale = numpy.linspace(-self._hscale/2, self._hscale/2, self._record_length)
 
 #------------------------------------------------------------------
 #    Always excuted hook method
@@ -817,6 +806,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             os = self._instrument.getHScale()
             attr.set_value(os)
             attr.set_write_value(os)
+            if os != self._hscale:
+                self._hscale = os
+                self._recalc_time_scale()
         except:
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
 
@@ -1383,7 +1375,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_Measurement1Res()")
         try:
             os = self._instrument.getMeasurementRes(1)
-            print "measurement 1 result", os
             attr.set_value(os)
         except Exception,e:
             self.error_stream("Cannot read MeasurementRes1 due to: %s"%e)
@@ -1392,8 +1383,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     def is_Measurement1Res_allowed(self, req_type):
         recently_changed = (self._measurement1_changed + self._measurement_wait) > time.time()
-        if recently_changed:
-            print "recently changed", self._measurement1_changed
         if self._instrument is not None and (not recently_changed) and self.attr_Measurement1_read != 'OFF':
             return True
         else:
@@ -1637,11 +1626,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'Instrument':
             [PyTango.DevString,
             "The name of the instrument to use",
-            [] ],
-        'Port':
-            [PyTango.DevUShort,
-            "In case of socket interface the port value can be changed",
-            [5025]],
+            [] ]
         }
 
 
@@ -2146,10 +2131,8 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
 #    RohdeSchwarzRTOClass Constructor
 #------------------------------------------------------------------
     def __init__(self, name):
-        print "__init__ class"
         PyTango.DeviceClass.__init__(self, name)
         self.set_type(name);
-        print "In RohdeSchwarzRTO Class  constructor"
 
 #==================================================================
 #
