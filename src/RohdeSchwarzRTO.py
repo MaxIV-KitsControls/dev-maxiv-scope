@@ -46,6 +46,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.set_state(newstate)
 
     def connectInstrument(self):
+        self.debug_stream("In connectInstrument")
         self._idn = "unknown"
 
         if not self._instrument:
@@ -146,6 +147,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_Measurement6Res_read = 0
         self.attr_Measurement7Res_read = 0
         self.attr_Measurement8Res_read = 0
+        #
+        self.attr_MeasurementGateOnOff_read = False
+        self.attr_MeasurementGateStart_read = 0
+        self.attr_MeasurementGateStop_read = 0
+        self.attr_MeasurementGateOnOff_write = False
+        self.attr_MeasurementGateStart_write = 0
+        self.attr_MeasurementGateStop_write = 0
 
         #Per channel attributes
         self.attr_WaveformDataCh1_read = []
@@ -156,6 +164,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_VScaleCh1_write = 0
         self.attr_CouplingCh1_read = 0
         self.attr_CouplingCh1_write = 0
+
         #
         self.attr_WaveformDataCh2_read = []
         self.attr_WaveformSumCh2_read = 0
@@ -1509,6 +1518,93 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
 
 #------------------------------------------------------------------
+#    Read MeasurementGateOnOff attribute
+#------------------------------------------------------------------
+    def read_MeasurementGateOnOff(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_MeasurementGateOnOff()")
+        try:
+            self.attr_MeasurementGateOnOff_read = self._instrument.getMeasurementGateOnOff()
+            attr.set_value(self.attr_MeasurementGateOnOff_read)
+            attr.set_write_value(self.attr_MeasurementGateOnOff_read)
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementGateOnOff due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write MeasurementGateOnOff attribute
+#------------------------------------------------------------------
+    def write_MeasurementGateOnOff(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementGateOnOff(data)
+        except Exception,e:
+            self.error_stream("Cannot configure MeasurementGateOnOff due to: %s"%e)
+
+    def is_MeasurementGateOnOff_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read MeasurementGateStart attribute
+#------------------------------------------------------------------
+    def read_MeasurementGateStart(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_MeasurementGateStart()")
+        try:
+            self.attr_MeasurementGateStart_read = self._instrument.getMeasurementGateStart()
+            attr.set_value(self.attr_MeasurementGateStart_read)
+            attr.set_write_value(self.attr_MeasurementGateStart_read)
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementGateStart due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write MeasurementGateStart attribute
+#------------------------------------------------------------------
+    def write_MeasurementGateStart(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementGateStart(data)
+        except Exception,e:
+            self.error_stream("Cannot configure MeasurementGateStart due to: %s"%e)
+
+    def is_MeasurementGateStart_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read MeasurementGateStop attribute
+#------------------------------------------------------------------
+    def read_MeasurementGateStop(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_MeasurementGateStop()")
+        try:
+            self.attr_MeasurementGateStop_read = self._instrument.getMeasurementGateStop()
+            attr.set_value(self.attr_MeasurementGateStop_read)
+            attr.set_write_value(self.attr_MeasurementGateStop_read)
+        except Exception,e:
+            self.error_stream("Cannot read MeasurementGateStop due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write MeasurementGateStop attribute
+#------------------------------------------------------------------
+    def write_MeasurementGateStop(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setMeasurementGateStop(data)
+        except Exception,e:
+            self.error_stream("Cannot configure MeasurementGateStop due to: %s"%e)
+
+    def is_MeasurementGateStop_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
 #    Read Attribute Hardware
 #    Want acquire available and waveform data to be read in order so do it here to be sure
 #    Missing some exception handling?
@@ -2095,6 +2191,31 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Result measurement 8",
                 'format': "%.3e"
             } ],
+        
+        'MeasurementGateOnOff':
+            [[PyTango.DevBoolean,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Gating for measurements enabled/disabled",
+                'label': "Gating for measurements",
+                } ],
+        'MeasurementGateStart':
+            [[PyTango.DevDouble,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Gate for measurements start",
+                'label': "Gate for measurements start",
+                } ],
+        'MeasurementGateStop':
+            [[PyTango.DevDouble,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Gate for measurements stop",
+                'label': "Gate for measurements stop",
+                } ],
         'CouplingCh1':
             [[PyTango.DevString,
               PyTango.SCALAR,
