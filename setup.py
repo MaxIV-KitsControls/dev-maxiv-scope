@@ -6,5 +6,5 @@ setup(name = 'tangods-scope',
       packages = ['RohdeSchwarzRTO'],
       author='Paul Bell',
       scripts = ['scripts/Scope'],
-      package_dir = {'' : 'src'},
+      package_dir = {'RohdeSchwarzRTO' : 'src'},
       )
