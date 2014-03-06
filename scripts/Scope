@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env python
 #device launcher
 from RohdeSchwarzRTO import main
 main()
