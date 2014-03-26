@@ -18,6 +18,7 @@ __docformat__ = 'restructuredtext'
 import PyTango
 import sys
 from threading import Thread
+import socket
 import time
 import traceback
 import numpy,struct,copy
@@ -109,13 +110,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #common attributes
         self.attr_IDN_read = ''
         self.attr_AcquireAvailable_read = 0
-        self.attr_FixedRecordLength_read = True
-        self.attr_RecordLength_read = 0
-        self.attr_RecordLength_write = 0
-        self.attr_HScale_read  = 0
-        self.attr_HScale_write = 0
-        self.attr_TrigLevel_read  = 0
-        self.attr_TrigLevel_write = 0
 
         #measurment configuration
         self.attr_Measurement1_read = 'OFF'
@@ -126,27 +120,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_Measurement6_read = 'OFF'
         self.attr_Measurement7_read = 'OFF'
         self.attr_Measurement8_read = 'OFF'
-        self.attr_Measurement1_write = 'OFF'
-        self.attr_Measurement2_write = 'OFF'
-        self.attr_Measurement3_write = 'OFF'
-        self.attr_Measurement4_write = 'OFF'
-        self.attr_Measurement5_write = 'OFF'
-        self.attr_Measurement6_write = 'OFF'
-        self.attr_Measurement7_write = 'OFF'
-        self.attr_Measurement8_write = 'OFF'
 
         self._measurement_wait = 1  # time to block measurement result reading after
                                     # changing the measurement type (prevents hang)
         self._measurement1_changed = time.time()
         #
-        self.attr_Measurement1Res_read = 0
-        self.attr_Measurement2Res_read = 0
-        self.attr_Measurement3Res_read = 0
-        self.attr_Measurement4Res_read = 0
-        self.attr_Measurement5Res_read = 0
-        self.attr_Measurement6Res_read = 0
-        self.attr_Measurement7Res_read = 0
-        self.attr_Measurement8Res_read = 0
         #
         self.attr_MeasurementGateOnOff_read = False
         self.attr_MeasurementGateStart_read = 0
@@ -158,40 +136,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #Per channel attributes
         self.attr_WaveformDataCh1_read = []
         self.attr_WaveformSumCh1_read = 0
-        self.attr_OffsetCh1_read = 0
-        self.attr_OffsetCh1_write = 0
-        self.attr_VScaleCh1_read = 0
-        self.attr_VScaleCh1_write = 0
-        self.attr_CouplingCh1_read = 0
-        self.attr_CouplingCh1_write = 0
-
         #
         self.attr_WaveformDataCh2_read = []
         self.attr_WaveformSumCh2_read = 0
-        self.attr_OffsetCh2_read = 0
-        self.attr_OffsetCh2_write = 0
-        self.attr_VScaleCh2_read = 0
-        self.attr_VScaleCh2_write = 0
-        self.attr_CouplingCh2_read = 0
-        self.attr_CouplingCh2_write = 0
         #
         self.attr_WaveformDataCh3_read = []
         self.attr_WaveformSumCh3_read = 0
-        self.attr_OffsetCh3_read = 0
-        self.attr_OffsetCh3_write = 0
-        self.attr_VScaleCh3_read = 0
-        self.attr_VScaleCh3_write = 0
-        self.attr_CouplingCh3_read = 0
-        self.attr_CouplingCh3_write = 0
         #
         self.attr_WaveformDataCh4_read = []
         self.attr_WaveformSumCh4_read = 0
-        self.attr_OffsetCh4_read = 0
-        self.attr_OffsetCh4_write = 0
-        self.attr_VScaleCh4_read = 0
-        self.attr_VScaleCh4_write = 0
-        self.attr_CouplingCh4_read = 0
-        self.attr_CouplingCh4_write = 0
 
         #---- once initialized, begin the process to connect with the instrument
         #PJB push trigger count
@@ -218,7 +171,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #self.event_thread = Thread(target=self.mymonitor.run,args=(100,self._instrument))
 
         # Stored data needed for generating the time axis scale
-        self._record_length = 5000
+        # set some defaults
+        self._instrument.setRecordLength(4000)
+        self._record_length = 4000
+        self._instrument.setHScale(0.001)
         self._hscale = 0.001
         self._recalc_time_scale()
 
