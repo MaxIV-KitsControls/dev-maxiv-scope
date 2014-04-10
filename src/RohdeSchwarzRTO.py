@@ -134,16 +134,12 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_MeasurementGateStop_write = 0
 
         #Per channel attributes
-        self.attr_WaveformDataCh1_read = []
         self.attr_WaveformSumCh1_read = 0
         #
-        self.attr_WaveformDataCh2_read = []
         self.attr_WaveformSumCh2_read = 0
         #
-        self.attr_WaveformDataCh3_read = []
         self.attr_WaveformSumCh3_read = 0
         #
-        self.attr_WaveformDataCh4_read = []
         self.attr_WaveformSumCh4_read = 0
 
         #---- once initialized, begin the process to connect with the instrument
@@ -158,7 +154,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.change_state(tango_status)
 
         #switch to normal, external trigger mode by default
-        self._instrument.setTriggerSource(1, "EXT")
+        #fix for site: don't assume anything!
+        #self._instrument.setTriggerSource(1, "EXT")
 
         #switch to binary readout mode
         self._instrument.SetBinaryReadout()
@@ -166,17 +163,44 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #switch all channels on by default
         self._instrument.AllChannelsOn()
 
+        #fast readout
+        self._instrument.SetFastReadout()
+        self._instrument.SetDisplayOff()
+
         #pjb xxx monitor thread
         #self.mymonitor = Monitor()
         #self.event_thread = Thread(target=self.mymonitor.run,args=(100,self._instrument))
 
         # Stored data needed for generating the time axis scale
-        # set some defaults
-        self._instrument.setRecordLength(4000)
-        self._record_length = 4000
-        self._instrument.setHScale(0.001)
-        self._hscale = 0.001
+        # Get current settings but also insist on reasonably small record length
+        #
+        #set to fixed record length first
+        self._instrument.setFixedRecordLength()
+        self._record_length = self._instrument.getRecordLength()
+        if self._record_length > 10000:
+            self._record_length = 10000
+            self._instrument.setRecordLength(self._record_length)
+        #
+        self._hscale =  self._instrument.getHScale()
+        #
+        #possibly we only read out 1 in n of points in the record (interpolate)
+        #print "mode is ", self._instrument.GetWaveformMode(1)
+        #"The R&S RTO uses decimation, if waveform "Sample rate" is less than the "ADC sample rate""
+        #Two options - may decimate the wf and read only 1 in n samples
+        #May interpolate and read 1 in n and fill the gaps
+        #In first case wf will not be full record length, in second case it will be expanded to fill
+        #Can just check the size and fill to full length_
+        #print "mode is ", self._instrument.GetAcquireMode()
+        #print "adc rate is ", self._instrument.GetADCSampleRate()
+        #print "sam rate is ", self._instrument.GetSampleRate()
         self._recalc_time_scale()
+
+        #initialise waveforms with required length
+        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+
 
     def _recalc_time_scale(self):
         self._time_scale = numpy.linspace(-self._hscale/2, self._hscale/2, self._record_length)
@@ -233,27 +257,29 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_AcquireAvailable()")
         try:
 
-            os = self._instrument.getCount()
-            attr.set_value(int(os))
+            self.attr_AcquireAvailable_read = int(self._instrument.getCount())
+            attr.set_value(self.attr_AcquireAvailable_read)
 
             #PJB self.push_change_event("AcquireAvailable", int(os))
             #PJB need to read wave form and get sum here, if this counter is polled
             #VH - should really ask for count and waveform data in same command
             #to ensure synchronisation! ie that wf i goes with trigger i
 
-            currentdata = self._instrument.getWaveformData(1)
-            self.attr_WaveformDataCh1_read = currentdata
-            self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
-            currentdata = self._instrument.getWaveformData(2)
-            self.attr_WaveformDataCh2_read = currentdata
-            self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
-            currentdata = self._instrument.getWaveformData(3)
-            self.attr_WaveformDataCh3_read = currentdata
-            self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
-            currentdata = self._instrument.getWaveformData(4)
-            self.attr_WaveformDataCh4_read = currentdata
-            self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
+            if self.attr_AcquireAvailable_read>0:
 
+                currentdata = self._instrument.getWaveformData(1)
+                self.attr_WaveformDataCh1_read = currentdata
+                self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
+                currentdata = self._instrument.getWaveformData(2)
+                self.attr_WaveformDataCh2_read = currentdata
+                self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
+                currentdata = self._instrument.getWaveformData(3)
+                self.attr_WaveformDataCh3_read = currentdata
+                self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
+                currentdata = self._instrument.getWaveformData(4)
+                self.attr_WaveformDataCh4_read = currentdata
+                self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
+                
            #   currentdata = self._instrument.getWaveformData(2)
            #  self.myWaveformDataCh2 = currentdata
            #  self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
@@ -275,20 +301,20 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
 #    Read FixedRecordLength attribute
 #------------------------------------------------------------------
-    def read_FixedRecordLength(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_FixedRecordLength()")
-        try:
-            os = self._instrument.getFixedRecordLength()
-            attr.set_value(os)
-        except Exception,e:
-            self.error_stream("Cannot read FixedRecordLength due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-    def is_FixedRecordLength_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+#    def read_FixedRecordLength(self, attr):
+#        self.debug_stream("In " + self.get_name() + ".read_FixedRecordLength()")
+#        try:
+#            os = self._instrument.getFixedRecordLength()
+#            attr.set_value(os)
+#        except Exception,e:
+#            self.error_stream("Cannot read FixedRecordLength due to: %s"%e)
+#            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+#            return
+#    def is_FixedRecordLength_allowed(self, req_type):
+#        if self._instrument is not None:
+#            return True
+#        else:
+#            return False
 #------------------------------------------------------------------
 #    Read RecordLength attribute
 #------------------------------------------------------------------
@@ -312,13 +338,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    This also fixes the record length, i.e. so that resolution changes
 #------------------------------------------------------------------
     def write_RecordLength(self, attr):
-        #set to fixed record length first
-        self._instrument.setFixedRecordLength()
         #now set value
         data = attr.get_write_value()
         self._instrument.setRecordLength(data)
         self._record_length = data
         self._recalc_time_scale()
+        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
+        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
 
 #------------------------------------------------------------------
 #    Read WaveformSumCh1 attribute
@@ -376,11 +404,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
 
         try:
-            if self.attr_WaveformDataCh1_read == []:
+            if self.attr_AcquireAvailable_read>0:
                self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
             attr.set_value(self.attr_WaveformDataCh1_read)
             self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(self.attr_WaveformDataCh1_read)
-            self.attr_WaveformDataCh1_read = []
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -398,10 +425,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh2()")
 
         try:
-            if self.attr_WaveformDataCh2_read == []:
+            if self.attr_AcquireAvailable_read>0:
                self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
             attr.set_value(self.attr_WaveformDataCh2_read)
-            self.attr_WaveformDataCh2_read = []
             self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(self.attr_WaveformDataCh2_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh2 due to: %s"%e)
@@ -420,10 +446,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh3()")
 
         try:
-            if self.attr_WaveformDataCh3_read == []:
+            if self.attr_AcquireAvailable_read>0:
                self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
             attr.set_value(self.attr_WaveformDataCh3_read)
-            self.attr_WaveformDataCh3_read = []
             self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(self.attr_WaveformDataCh3_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh3 due to: %s"%e)
@@ -442,10 +467,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh4()")
 
         try:
-            if self.attr_WaveformDataCh4_read == []:
+            if self.attr_AcquireAvailable_read>0:
                self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
             attr.set_value(self.attr_WaveformDataCh4_read)
-            self.attr_WaveformDataCh4_read = []
             self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(self.attr_WaveformDataCh4_read)
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh4 due to: %s"%e)
@@ -1718,13 +1742,13 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Triggered events",
                 'format': "%4.0f"
                 } ],
-        'FixedRecordLength':
-            [[PyTango.DevBoolean,
-              PyTango.SCALAR,
-              PyTango.READ],
-             {
-                'description': "Option to ensure fixed record length",
-                } ],
+        #'FixedRecordLength':
+        #    [[PyTango.DevBoolean,
+        #      PyTango.SCALAR,
+        #      PyTango.READ],
+        #     {
+        #        'description': "Option to ensure fixed record length",
+        #        } ],
         'RecordLength':
             [[PyTango.DevLong,
               PyTango.SCALAR,
@@ -1804,7 +1828,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'TimeScale':
             [[PyTango.DevDouble,
             PyTango.SPECTRUM,
-            PyTango.READ, 200000],
+            PyTango.READ, 10000],
             {
                 'description': "Time scale",
                 'label': "Time scale",
@@ -1821,7 +1845,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'WaveformDataCh1':
             [[PyTango.DevDouble,
             PyTango.SPECTRUM,
-            PyTango.READ, 200000],
+            PyTango.READ, 10000],
             {
                 'description': "WaveformData channel 1",
                 'label': "Channel 1",
@@ -1858,7 +1882,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'WaveformDataCh2':
             [[PyTango.DevDouble,
             PyTango.SPECTRUM,
-            PyTango.READ, 200000],
+            PyTango.READ, 10000],
             {
                 'description': "WaveformData channel 2",
                 'label': "Channel 2",
@@ -1895,7 +1919,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'WaveformDataCh3':
             [[PyTango.DevDouble,
             PyTango.SPECTRUM,
-            PyTango.READ, 200000],
+            PyTango.READ, 10000],
             {
                 'description': "WaveformData channel 3",
                 'label': "Channel 3",
@@ -1932,7 +1956,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'WaveformDataCh4':
             [[PyTango.DevDouble,
             PyTango.SPECTRUM,
-            PyTango.READ, 200000],
+            PyTango.READ, 10000],
             {
                 'description': "WaveformData channel 4",
                 'label': "Channel 4",
