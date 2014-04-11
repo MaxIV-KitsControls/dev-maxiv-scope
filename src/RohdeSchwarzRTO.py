@@ -188,8 +188,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #switch to binary readout mode
         self._instrument.SetBinaryReadout()
 
-        #switch all channels on by default
-        self._instrument.AllChannelsOn()
+        #check which channels are on
+        self._active_channels = self._instrument.getChanStateAll()
+        print "active channels",  self._active_channels
 
         #fast readout
         self._instrument.SetFastReadout()
@@ -927,7 +928,128 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return False
 
 #------------------------------------------------------------------
+#    Read StateCh1 attribute
 #------------------------------------------------------------------
+    def read_StateCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_StateCh1()")
+        try:
+            attr_StateCh1_read = self._instrument.getChanState(1)
+            print "here", attr_StateCh1_read
+            attr.set_value(attr_StateCh1_read)
+            attr.set_write_value(attr_StateCh1_read)
+        except Exception,e:
+            self.error_stream("Cannot read StateCh1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write StateCh1 attribute
+#------------------------------------------------------------------
+    def write_StateCh1(self, attr):
+        data = attr.get_write_value()
+        print "setting", data
+        try:
+            self._instrument.setChanState(1,data)
+            self._active_channels = self._instrument.getChanStateAll()
+        except Exception,e:
+            self.error_stream("Cannot configure StateCh1 due to: %s"%e)
+
+    def is_StateCh1_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read StateCh2 attribute
+#------------------------------------------------------------------
+    def read_StateCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_StateCh2()")
+        try:
+            attr_StateCh2_read = self._instrument.getChanState(2)
+            attr.set_value(attr_StateCh2_read)
+            attr.set_write_value(attr_StateCh2_read)
+        except Exception,e:
+            self.error_stream("Cannot read StateCh2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write StateCh2 attribute
+#------------------------------------------------------------------
+    def write_StateCh2(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setChanState(2,data)
+            self._active_channels = self._instrument.getChanStateAll()
+        except Exception,e:
+            self.error_stream("Cannot configure StateCh2 due to: %s"%e)
+
+    def is_StateCh2_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read StateCh3 attribute
+#------------------------------------------------------------------
+    def read_StateCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_StateCh3()")
+        try:
+            attr_StateCh3_read = self._instrument.getChanState(3)
+            attr.set_value(attr_StateCh3_read)
+            attr.set_write_value(attr_StateCh3_read)
+        except Exception,e:
+            self.error_stream("Cannot read StateCh3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write StateCh3 attribute
+#------------------------------------------------------------------
+    def write_StateCh3(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setChanState(3,data)
+            self._active_channels = self._instrument.getChanStateAll()
+        except Exception,e:
+            self.error_stream("Cannot configure StateCh3 due to: %s"%e)
+
+    def is_StateCh3_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+#------------------------------------------------------------------
+#    Read StateCh4 attribute
+#------------------------------------------------------------------
+    def read_StateCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_StateCh4()")
+        try:
+            attr_StateCh4_read = self._instrument.getChanState(4)
+            attr.set_value(attr_StateCh4_read)
+            attr.set_write_value(attr_StateCh4_read)
+        except Exception,e:
+            self.error_stream("Cannot read StateCh4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write StateCh4 attribute
+#------------------------------------------------------------------
+    def write_StateCh4(self, attr):
+        data = attr.get_write_value()
+        try:
+            self._instrument.setChanState(4,data)
+            self._active_channels = self._instrument.getChanStateAll()
+        except Exception,e:
+            self.error_stream("Cannot configure StateCh4 due to: %s"%e)
+
+    def is_StateCh4_allowed(self, req_type):
+        if self._instrument is not None:
+            return True
+        else:
+            return False
+
+
 #
 # MEASUREMENTS
 # ============
@@ -1745,6 +1867,10 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'Instrument':
             [PyTango.DevString,
             "The name of the instrument to use",
+            [] ],
+        'WaveformAverageChannel':
+            [PyTango.DevShort,
+            "The channel on which to perform the summing and averaging (1-4)",
             [] ]
         }
 
@@ -1775,6 +1901,38 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Instrument identification",
             } ],
+        'StateCh1':
+            [[PyTango.DevBoolean,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Channel 1 state",
+                'label': "Channel 1 state",
+                } ],
+        'StateCh2':
+            [[PyTango.DevBoolean,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Channel 2 state",
+                'label': "Channel 2 state",
+                } ],
+        'StateCh3':
+            [[PyTango.DevBoolean,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Channel 3 state",
+                'label': "Channel 3 state",
+                } ],
+        'StateCh4':
+            [[PyTango.DevBoolean,
+              PyTango.SCALAR,
+              PyTango.READ_WRITE],
+             {
+                'description': "Channel 4 state",
+                'label': "Channel 4 state",
+                } ],
         'AcquireAvailable':
             [[PyTango.DevLong,
               PyTango.SCALAR,
