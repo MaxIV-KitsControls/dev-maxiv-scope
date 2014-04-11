@@ -17,7 +17,7 @@ __docformat__ = 'restructuredtext'
 
 import PyTango
 import sys
-from threading import Thread
+from threading import Thread, Lock, Event
 import socket
 import time
 import traceback
@@ -40,6 +40,27 @@ from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     _instrument = None
+    _acquiring = Event()
+
+    def _acquisition_loop(self):
+        self._instrument.scope.clear()
+        self._instrument.scope.write("STOP")
+        self._instrument.scope.write(":TRIGger:MODe NORMal")
+        i = 0
+        t0 = time.time()
+        self._acquiring.set()
+        while self._acquiring.isSet():
+            waveforms = self._instrument.acquire_single()
+            print len(waveforms[-1])
+            self.attr_WaveformDataCh1_read = waveforms[0]
+            self.attr_WaveformDataCh2_read = waveforms[1]
+            self.attr_WaveformDataCh3_read = waveforms[2]
+            self.attr_WaveformDataCh4_read = waveforms[3]
+
+            self.push_change_event("WaveformDataCh1", self.attr_WaveformDataCh1_read)
+            self.push_change_event("WaveformDataCh2", self.attr_WaveformDataCh2_read)
+            self.push_change_event("WaveformDataCh3", self.attr_WaveformDataCh3_read)
+            self.push_change_event("WaveformDataCh4", self.attr_WaveformDataCh4_read)
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
@@ -87,7 +108,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def __init__(self,cl, name):
         PyTango.Device_4Impl.__init__(self,cl,name)
         self.debug_stream("In " + self.get_name() + ".__init__()")
+        #self.set_change_event('SpecialWaveform', True)
         RohdeSchwarzRTO.init_device(self)
+        time.sleep(1.0)
+
+        self.set_change_event('WaveformDataCh1', True)
+        self.set_change_event('WaveformDataCh2', True)
+        self.set_change_event('WaveformDataCh3', True)
+        self.set_change_event('WaveformDataCh4', True)
 
 #------------------------------------------------------------------
 #    Device destructor
@@ -255,44 +283,44 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def read_AcquireAvailable(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_AcquireAvailable()")
-        try:
+        # try:
 
-            self.attr_AcquireAvailable_read = int(self._instrument.getCount())
-            attr.set_value(self.attr_AcquireAvailable_read)
+        #     self.attr_AcquireAvailable_read = int(self._instrument.getCount())
+        #     attr.set_value(self.attr_AcquireAvailable_read)
 
-            #PJB self.push_change_event("AcquireAvailable", int(os))
-            #PJB need to read wave form and get sum here, if this counter is polled
-            #VH - should really ask for count and waveform data in same command
-            #to ensure synchronisation! ie that wf i goes with trigger i
+        #     #PJB self.push_change_event("AcquireAvailable", int(os))
+        #     #PJB need to read wave form and get sum here, if this counter is polled
+        #     #VH - should really ask for count and waveform data in same command
+        #     #to ensure synchronisation! ie that wf i goes with trigger i
 
-            if self.attr_AcquireAvailable_read>0:
+        #     if self.attr_AcquireAvailable_read>0:
 
-                currentdata = self._instrument.getWaveformData(1)
-                self.attr_WaveformDataCh1_read = currentdata
-                self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
-                currentdata = self._instrument.getWaveformData(2)
-                self.attr_WaveformDataCh2_read = currentdata
-                self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
-                currentdata = self._instrument.getWaveformData(3)
-                self.attr_WaveformDataCh3_read = currentdata
-                self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
-                currentdata = self._instrument.getWaveformData(4)
-                self.attr_WaveformDataCh4_read = currentdata
-                self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
-                
-           #   currentdata = self._instrument.getWaveformData(2)
-           #  self.myWaveformDataCh2 = currentdata
-           #  self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
-           #  currentdata = self._instrument.getWaveformData(3)
-           #  self.myWaveformDataCh3 = currentdata
-           #  self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
-           #  currentdata = self._instrument.getWaveformData(4)
-           #  self.myWaveformDataCh4 = currentdata
-           #  self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
-        except Exception,e:
-            self.error_stream("Cannot read AcquireAvailable or WaveformData due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
+        #         currentdata = self._instrument.getWaveformData(1)
+        #         self.attr_WaveformDataCh1_read = currentdata
+        #         self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
+        #         currentdata = self._instrument.getWaveformData(2)
+        #         self.attr_WaveformDataCh2_read = currentdata
+        #         self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
+        #         currentdata = self._instrument.getWaveformData(3)
+        #         self.attr_WaveformDataCh3_read = currentdata
+        #         self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
+        #         currentdata = self._instrument.getWaveformData(4)
+        #         self.attr_WaveformDataCh4_read = currentdata
+        #         self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
+
+        #    #   currentdata = self._instrument.getWaveformData(2)
+        #    #  self.myWaveformDataCh2 = currentdata
+        #    #  self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
+        #    #  currentdata = self._instrument.getWaveformData(3)
+        #    #  self.myWaveformDataCh3 = currentdata
+        #    #  self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
+        #    #  currentdata = self._instrument.getWaveformData(4)
+        #    #  self.myWaveformDataCh4 = currentdata
+        #    #  self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
+        # except Exception,e:
+        #     self.error_stream("Cannot read AcquireAvailable or WaveformData due to: %s"%e)
+        #     attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+        #     return
     def is_AcquireAvailable_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -347,6 +375,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_WaveformDataCh2_read = [0.0]*self._record_length
         self.attr_WaveformDataCh3_read = [0.0]*self._record_length
         self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+
+    # def read_SpecialWaveform(self, attr):
+    #     if self._special_waveform is not None:
+    #         attr.set_value(self._special_waveform)
+
+    # def is_SpecialWaveform_allowed(self, req_type):
+    #     return True
 
 #------------------------------------------------------------------
 #    Read WaveformSumCh1 attribute
@@ -404,8 +439,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
 
         try:
-            if self.attr_AcquireAvailable_read>0:
-               self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
+            # if self.attr_AcquireAvailable_read>0:
+            #     print "dsadsad"
+            #     self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
             attr.set_value(self.attr_WaveformDataCh1_read)
             self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(self.attr_WaveformDataCh1_read)
         except Exception,e:
@@ -425,8 +461,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh2()")
 
         try:
-            if self.attr_AcquireAvailable_read>0:
-               self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
+            # if self.attr_AcquireAvailable_read>0:
+            #    self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
             attr.set_value(self.attr_WaveformDataCh2_read)
             self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(self.attr_WaveformDataCh2_read)
         except Exception,e:
@@ -446,8 +482,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh3()")
 
         try:
-            if self.attr_AcquireAvailable_read>0:
-               self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
+            # if self.attr_AcquireAvailable_read>0:
+            #    self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
             attr.set_value(self.attr_WaveformDataCh3_read)
             self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(self.attr_WaveformDataCh3_read)
         except Exception,e:
@@ -467,8 +503,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh4()")
 
         try:
-            if self.attr_AcquireAvailable_read>0:
-               self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
+            # if self.attr_AcquireAvailable_read>0:
+            #    self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
             attr.set_value(self.attr_WaveformDataCh4_read)
             self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(self.attr_WaveformDataCh4_read)
         except Exception,e:
@@ -1606,8 +1642,12 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Start(self):
         self.debug_stream("In " + self.get_name() +  ".Start()")
         self.change_state(PyTango.DevState.RUNNING)
-        self._instrument.StartAcq()
-        #self.event_thread.start()
+        print self._instrument.firmware_version
+        if self._instrument.firmware_version >= (2,):
+            self.acq_thread = Thread(target=self._acquisition_loop)
+            self.acq_thread.start()
+        else:
+            self._instrument.StartAcq()
 
 
 #------------------------------------------------------------------
@@ -1625,7 +1665,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Stop(self):
         self.debug_stream("In " + self.get_name() +  ".Stop()")
         self.change_state(PyTango.DevState.ON)
-        self._instrument.StopAcq()
+        if self._instrument.firmware_version >= (2,):
+            self._acquiring.clear()
+        else:
+            self._instrument.StopAcq()
         #self.mymonitor.terminate()
 
 #------------------------------------------------------------------
@@ -1843,7 +1886,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 1",
             } ],
         'WaveformDataCh1':
-            [[PyTango.DevDouble,
+            [[PyTango.DevShort,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -1880,7 +1923,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 2",
             } ],
         'WaveformDataCh2':
-            [[PyTango.DevDouble,
+            [[PyTango.DevShort,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -1917,7 +1960,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 3",
             } ],
         'WaveformDataCh3':
-            [[PyTango.DevDouble,
+            [[PyTango.DevShort,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -1946,7 +1989,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'format': "%4.3f"
             } ],
         'WaveformSumCh4':
-            [[PyTango.DevDouble,
+            [[PyTango.DevShort,
             PyTango.SCALAR,
             PyTango.READ],
             {
@@ -2171,7 +2214,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Result measurement 8",
                 'format': "%.3e"
             } ],
-        
+
         'MeasurementGateOnOff':
             [[PyTango.DevBoolean,
               PyTango.SCALAR,
@@ -2228,6 +2271,15 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Coupling channel 4",
                 'label': "Coupling channel 4",
                 } ],
+        # 'SpecialWaveform':
+        #     [[PyTango.DevDouble,
+        #     PyTango.SPECTRUM,
+        #     PyTango.READ, 10000],
+        #     {
+        #         'description': "Special Waveform Data",
+        #         'label': "Waveform",
+        #         'unit': "V"
+        #     } ]
 
         }
 
