@@ -26,6 +26,8 @@ from types import StringType
 from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 #from monitor import Monitor
 
+from collections import deque
+
 ##############################################################################
 ## Device States Description
 ##
@@ -41,30 +43,42 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     _instrument = None
     _acquiring = Event()
+    _waveforms = deque(maxlen=100)
+
+    WaveformAverageChannel = 2
+    _active_channels = (1, 2)
 
     def _acquisition_loop(self):
-        self._instrument.scope.clear()
-        self._instrument.scope.write("STOP")
-        self._instrument.scope.write(":TRIGger:MODe NORMal")
-        i = 0
-        t0 = time.time()
+
+        """The 'inner' loop that reads the channel waveforms"""
+
+        # self._instrument.scope.clear()
+        # self._instrument.scope.write("STOP")
+        self._instrument.write(":TRIGger:MODe NORMal")
         self._acquiring.set()
         while self._acquiring.isSet():
             waveforms = self._instrument.acquire_single()
-            print len(waveforms[-1])
-            self.attr_WaveformDataCh1_read = waveforms[0]
-            self.attr_WaveformDataCh2_read = waveforms[1]
-            self.attr_WaveformDataCh3_read = waveforms[2]
-            self.attr_WaveformDataCh4_read = waveforms[3]
 
-            self.push_change_event("WaveformDataCh1", self.attr_WaveformDataCh1_read)
-            self.push_change_event("WaveformDataCh2", self.attr_WaveformDataCh2_read)
-            self.push_change_event("WaveformDataCh3", self.attr_WaveformDataCh3_read)
-            self.push_change_event("WaveformDataCh4", self.attr_WaveformDataCh4_read)
+            for i, j in enumerate(self._active_channels):
+                wf = waveforms[i]
+                wf_name = "WaveformDataCh%d" % j
+                setattr(self, "attr_" + wf_name + "_read", wf)  # ouch
+                self.push_change_event(wf_name, wf)
+
+            # If the waveform lengths have changed, the timescale needs
+            # recalculating.
+            wf_len = len(waveforms[0])
+            if wf_len != self._record_length:
+                self._record_length = wf_len
+                self._recalc_time_scale()
+
+            avg_index = self._active_channels.index(self.WaveformAverageChannel)
+            self._waveforms.append(waveforms[avg_index])  # used for running average
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
         if newstate != self.get_state():
+            print "In %s.change_state(%s)"%(self.get_name(),str(newstate))
             self.set_state(newstate)
 
     def connectInstrument(self):
@@ -178,8 +192,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return
 
         #once connected check if already running or not.
-        tango_status, status_str = self._instrument.getOperCond()
-        self.change_state(tango_status)
+        # tango_status, status_str = self._instrument.getOperCond()
+        # self.change_state(tango_status)
 
         #switch to normal, external trigger mode by default
         #fix for site: don't assume anything!
@@ -250,9 +264,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         #check status, assuming connection OK, and hence also state of connection
         try:
-            tango_status, status_str = self._instrument.getOperCond()
+            status_str = self._instrument.getOperCond()
             self.set_status(status_str)
-            self.set_state(tango_status)
+            #self.set_state(tango_status)
         except socket.timeout:
             self.error_stream("In always_executed_hook() Lost connection due to timeout")
             self.set_status("Lost connection with instrument (timeout). Check and do INIT")
@@ -1620,6 +1634,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         else:
             return False
 
+    def read_WaveformAreaAverage(self, attr):
+        areas = (numpy.sum(wf) for wf in self._waveforms)
+        data = sum(areas) / self._record_length * self._hscale
+        attr.set_value(data)
+
+    def is_WaveformAreaAverage_allowed(self, req_type):
+        return self.get_state() == PyTango.DevState.RUNNING
+
 #------------------------------------------------------------------
 #    Read Attribute Hardware
 #    Want acquire available and waveform data to be read in order so do it here to be sure
@@ -2271,15 +2293,15 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Coupling channel 4",
                 'label': "Coupling channel 4",
                 } ],
-        # 'SpecialWaveform':
-        #     [[PyTango.DevDouble,
-        #     PyTango.SPECTRUM,
-        #     PyTango.READ, 10000],
-        #     {
-        #         'description': "Special Waveform Data",
-        #         'label': "Waveform",
-        #         'unit': "V"
-        #     } ]
+        'WaveformAreaAverage':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Average of the area under configured waveform over time",
+                'label': "Waveform Area Average",
+                'unit': "Vs"
+            } ]
 
         }
 
