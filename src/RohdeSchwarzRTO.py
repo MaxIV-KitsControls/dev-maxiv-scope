@@ -45,24 +45,27 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     _acquiring = Event()
     _waveforms = deque(maxlen=100)
 
-    WaveformAverageChannel = 2
-    _active_channels = (1, 2)
-
     def _acquisition_loop(self):
 
         """The 'inner' loop that reads the channel waveforms"""
 
-        # self._instrument.scope.clear()
-        # self._instrument.scope.write("STOP")
+        self._instrument.scope.clear()
+        self._instrument.scope.write("STOP")
         self._instrument.write(":TRIGger:MODe NORMal")
         self._acquiring.set()
         while self._acquiring.isSet():
-            waveforms = self._instrument.acquire_single()
+
+            if not self._active_channels:
+                print "no channels active!"
+                time.sleep(1)
+                continue
+
+            waveforms = self._instrument.acquire_single(self._active_channels)
 
             for i, j in enumerate(self._active_channels):
                 wf = waveforms[i]
+                self._waveform_data[j] = waveforms[i]
                 wf_name = "WaveformDataCh%d" % j
-                setattr(self, "attr_" + wf_name + "_read", wf)  # ouch
                 self.push_change_event(wf_name, wf)
 
             # If the waveform lengths have changed, the timescale needs
@@ -72,8 +75,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                 self._record_length = wf_len
                 self._recalc_time_scale()
 
-            avg_index = self._active_channels.index(self.WaveformAverageChannel)
-            self._waveforms.append(waveforms[avg_index])  # used for running average
+            # Buffer selected waveform for average area calculation
+            if self.WaveformAverageChannel in self._active_channels:
+                avg_index = self._active_channels.index(self.WaveformAverageChannel)
+                self._waveforms.append(waveforms[avg_index])
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
@@ -239,10 +244,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._recalc_time_scale()
 
         #initialise waveforms with required length
-        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+        self._waveform_data = {n+1: numpy.zeros(self._record_length) for n in xrange(4)}
 
 
     def _recalc_time_scale(self):
@@ -386,10 +388,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._instrument.setRecordLength(data)
         self._record_length = data
         self._recalc_time_scale()
-        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+        # self.attr_WaveformDataCh1_read = [0.0]*self._record_length
+        # self.attr_WaveformDataCh2_read = [0.0]*self._record_length
+        # self.attr_WaveformDataCh3_read = [0.0]*self._record_length
+        # self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+        self._waveform_data = {n+1: numpy.zeros(self._record_length) for n in xrange(4)}
 
     # def read_SpecialWaveform(self, attr):
     #     if self._special_waveform is not None:
@@ -457,8 +460,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             # if self.attr_AcquireAvailable_read>0:
             #     print "dsadsad"
             #     self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
-            attr.set_value(self.attr_WaveformDataCh1_read)
-            self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(self.attr_WaveformDataCh1_read)
+            attr.set_value(self._waveform_data[1])
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -478,8 +480,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         try:
             # if self.attr_AcquireAvailable_read>0:
             #    self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
-            attr.set_value(self.attr_WaveformDataCh2_read)
-            self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(self.attr_WaveformDataCh2_read)
+            attr.set_value(self._waveform_data[2])
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh2 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -499,8 +500,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         try:
             # if self.attr_AcquireAvailable_read>0:
             #    self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
-            attr.set_value(self.attr_WaveformDataCh3_read)
-            self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(self.attr_WaveformDataCh3_read)
+            attr.set_value(self._waveform_data[3])
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -520,8 +520,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         try:
             # if self.attr_AcquireAvailable_read>0:
             #    self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
-            attr.set_value(self.attr_WaveformDataCh4_read)
-            self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(self.attr_WaveformDataCh4_read)
+            attr.set_value(self._waveform_data[4])
         except Exception,e:
             self.error_stream("Cannot read WaveformDataCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1762,7 +1761,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         attr.set_value(data)
 
     def is_WaveformAreaAverage_allowed(self, req_type):
-        return self.get_state() == PyTango.DevState.RUNNING
+        return (self.get_state() == PyTango.DevState.RUNNING and
+                self.WaveformAverageChannel in self._active_channels)
 
 #------------------------------------------------------------------
 #    Read Attribute Hardware
