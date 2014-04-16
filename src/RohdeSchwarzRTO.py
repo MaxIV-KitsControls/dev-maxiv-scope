@@ -26,6 +26,8 @@ from types import StringType
 from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 #from monitor import Monitor
 
+from collections import deque
+
 ##############################################################################
 ## Device States Description
 ##
@@ -43,28 +45,53 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     _acquiring = Event()
 
     def _acquisition_loop(self):
-        self._instrument.scope.clear()
-        self._instrument.scope.write("STOP")
-        self._instrument.scope.write(":TRIGger:MODe NORMal")
-        i = 0
-        t0 = time.time()
-        self._acquiring.set()
-        while self._acquiring.isSet():
-            waveforms = self._instrument.acquire_single()
-            print len(waveforms[-1])
-            self.attr_WaveformDataCh1_read = waveforms[0]
-            self.attr_WaveformDataCh2_read = waveforms[1]
-            self.attr_WaveformDataCh3_read = waveforms[2]
-            self.attr_WaveformDataCh4_read = waveforms[3]
 
-            self.push_change_event("WaveformDataCh1", self.attr_WaveformDataCh1_read)
-            self.push_change_event("WaveformDataCh2", self.attr_WaveformDataCh2_read)
-            self.push_change_event("WaveformDataCh3", self.attr_WaveformDataCh3_read)
-            self.push_change_event("WaveformDataCh4", self.attr_WaveformDataCh4_read)
+        """The 'inner' loop that reads the channel waveforms"""
+
+        self._acquiring.set()
+
+        #self._instrument.setTriggerMode("NORM")  # assume nothing?
+        self._instrument.write("RUNC")
+
+        while self._acquiring.isSet():
+            try:
+                if not any(self._active_channels.values()):
+                    print "no channels active!"
+                    time.sleep(1)
+                    continue
+
+                #waveforms = self._instrument.acquire_single(self._active_channels)
+                waveforms = self._instrument.acquire_single_polling(
+                    self._active_channels, self._record_length)
+
+                for i, wf in waveforms.items():
+                    # scale to scope display divisions, that is +/-5.
+                    swf = (wf / 127.) * 5
+                    self._waveform_data[i] = swf
+                    wf_name = "WaveformDataCh%d" % i
+                    self.push_change_event(wf_name, swf)
+
+                # If the waveform lengths have changed, the timescale needs
+                # recalculating.
+                wf_len = len(wf)  # watch it
+                if wf_len != self._record_length:
+                    self._record_length = wf_len
+                    self._recalc_time_scale()
+
+                # Buffer selected waveform for average area calculation
+                if self._active_channels[self.WaveformAverageChannel]:
+                    self._waveforms.append(waveforms[self.WaveformAverageChannel])
+
+            except Exception as e:
+                # *** Don't do this at home! ***
+                # Catching all exceptions since we can't have the thread dying on us
+                # Kind of dangerous since it may also hide bugs...
+                self.error_stream("Error acquiring waveform data: %s" % str(e))
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
         if newstate != self.get_state():
+            print "In %s.change_state(%s)"%(self.get_name(),str(newstate))
             self.set_state(newstate)
 
     def connectInstrument(self):
@@ -73,6 +100,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         if not self._instrument:
             self._instrument =  RohdeSchwarzRTOConnection(self.Instrument)
+            self._instrument.io_timeout = self._instrument.lock_timeout = 1000
             try:
                 self._instrument.connect()
                 self._idn = self._instrument.getIDN()
@@ -112,10 +140,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         RohdeSchwarzRTO.init_device(self)
         time.sleep(1.0)
 
-        self.set_change_event('WaveformDataCh1', True)
-        self.set_change_event('WaveformDataCh2', True)
-        self.set_change_event('WaveformDataCh3', True)
-        self.set_change_event('WaveformDataCh4', True)
+        self.set_change_event('WaveformDataCh1', True, False)
+        self.set_change_event('WaveformDataCh2', True, False)
+        self.set_change_event('WaveformDataCh3', True, False)
+        self.set_change_event('WaveformDataCh4', True, False)
+        self.set_change_event('HScale', True, False)
 
 #------------------------------------------------------------------
 #    Device destructor
@@ -178,8 +207,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return
 
         #once connected check if already running or not.
-        tango_status, status_str = self._instrument.getOperCond()
-        self.change_state(tango_status)
+        # tango_status, status_str = self._instrument.getOperCond()
+        # self.change_state(tango_status)
 
         #switch to normal, external trigger mode by default
         #fix for site: don't assume anything!
@@ -189,12 +218,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._instrument.SetBinaryReadout()
 
         #check which channels are on
-        self._active_channels = self._instrument.getChanStateAll()
+        self._active_channels = {}
+        self._instrument.updateChanStates(self._active_channels)
         print "active channels",  self._active_channels
 
-        #fast readout
-        self._instrument.SetFastReadout()
-        self._instrument.SetDisplayOff()
+        #faster readout (only available in firmware v2)
+        if self._instrument.firmware_version >= (2,):
+            self._instrument.SetFastReadout()
+            self._instrument.SetDisplayOff()  # no display during run single
+            self._instrument.SetMultiChannel()  # read out all enabled channels at once
 
         #pjb xxx monitor thread
         #self.mymonitor = Monitor()
@@ -211,6 +243,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.setRecordLength(self._record_length)
         #
         self._hscale =  self._instrument.getHScale()
+        self._vscales = self._instrument.getVScaleAll()
         #
         #possibly we only read out 1 in n of points in the record (interpolate)
         #print "mode is ", self._instrument.GetWaveformMode(1)
@@ -225,14 +258,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._recalc_time_scale()
 
         #initialise waveforms with required length
-        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+        self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
+        self._waveforms = deque(maxlen=self.WaveformAveragePoints or 100)
 
     def _recalc_time_scale(self):
-        self._time_scale = numpy.linspace(-self._hscale/2, self._hscale/2, self._record_length)
+        self._time_scale = numpy.linspace(-self._hscale/2 * 10, self._hscale/2 * 10, self._record_length)
+        self.push_change_event("TimeScale", self._time_scale)
 
 #------------------------------------------------------------------
 #    Always excuted hook method
@@ -251,9 +283,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         #check status, assuming connection OK, and hence also state of connection
         try:
-            tango_status, status_str = self._instrument.getOperCond()
+            status_str = self._instrument.getOperCond()
             self.set_status(status_str)
-            self.set_state(tango_status)
+            #self.set_state(tango_status)
         except socket.timeout:
             self.error_stream("In always_executed_hook() Lost connection due to timeout")
             self.set_status("Lost connection with instrument (timeout). Check and do INIT")
@@ -283,45 +315,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    Read AcquireAvailable attribute
 #------------------------------------------------------------------
     def read_AcquireAvailable(self, attr):
+        # Acquisition is now handled by the thread, so we don't need this..?
         self.debug_stream("In " + self.get_name() + ".read_AcquireAvailable()")
-        # try:
 
-        #     self.attr_AcquireAvailable_read = int(self._instrument.getCount())
-        #     attr.set_value(self.attr_AcquireAvailable_read)
-
-        #     #PJB self.push_change_event("AcquireAvailable", int(os))
-        #     #PJB need to read wave form and get sum here, if this counter is polled
-        #     #VH - should really ask for count and waveform data in same command
-        #     #to ensure synchronisation! ie that wf i goes with trigger i
-
-        #     if self.attr_AcquireAvailable_read>0:
-
-        #         currentdata = self._instrument.getWaveformData(1)
-        #         self.attr_WaveformDataCh1_read = currentdata
-        #         self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(currentdata)
-        #         currentdata = self._instrument.getWaveformData(2)
-        #         self.attr_WaveformDataCh2_read = currentdata
-        #         self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(currentdata)
-        #         currentdata = self._instrument.getWaveformData(3)
-        #         self.attr_WaveformDataCh3_read = currentdata
-        #         self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(currentdata)
-        #         currentdata = self._instrument.getWaveformData(4)
-        #         self.attr_WaveformDataCh4_read = currentdata
-        #         self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(currentdata)
-
-        #    #   currentdata = self._instrument.getWaveformData(2)
-        #    #  self.myWaveformDataCh2 = currentdata
-        #    #  self.myWaveformSumCh2 = self._instrument.sumWaveform(currentdata)
-        #    #  currentdata = self._instrument.getWaveformData(3)
-        #    #  self.myWaveformDataCh3 = currentdata
-        #    #  self.myWaveformSumCh3 = self._instrument.sumWaveform(currentdata)
-        #    #  currentdata = self._instrument.getWaveformData(4)
-        #    #  self.myWaveformDataCh4 = currentdata
-        #    #  self.myWaveformSumCh4 = self._instrument.sumWaveform(currentdata)
-        # except Exception,e:
-        #     self.error_stream("Cannot read AcquireAvailable or WaveformData due to: %s"%e)
-        #     attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-        #     return
     def is_AcquireAvailable_allowed(self, req_type):
         if self._instrument is not None:
             return True
@@ -372,17 +368,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._instrument.setRecordLength(data)
         self._record_length = data
         self._recalc_time_scale()
-        self.attr_WaveformDataCh1_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh2_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh3_read = [0.0]*self._record_length
-        self.attr_WaveformDataCh4_read = [0.0]*self._record_length
+        self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
-    # def read_SpecialWaveform(self, attr):
-    #     if self._special_waveform is not None:
-    #         attr.set_value(self._special_waveform)
-
-    # def is_SpecialWaveform_allowed(self, req_type):
-    #     return True
 
 #------------------------------------------------------------------
 #    Read WaveformSumCh1 attribute
@@ -438,87 +425,43 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformDataCh1(self, attr):
 
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh1()")
-
-        try:
-            # if self.attr_AcquireAvailable_read>0:
-            #     print "dsadsad"
-            #     self.attr_WaveformDataCh1_read = self._instrument.getWaveformData(1)
-            attr.set_value(self.attr_WaveformDataCh1_read)
-            self.attr_WaveformSumCh1_read = self._instrument.sumWaveform(self.attr_WaveformDataCh1_read)
-        except Exception,e:
-            self.error_stream("Cannot read WaveformDataCh1 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
+        attr.set_value(self._waveform_data[1])
 
     def is_WaveformDataCh1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None and self._active_channels[1]
+
 #------------------------------------------------------------------
 #    Read WaveformDataCh2 attribute
 #------------------------------------------------------------------
     def read_WaveformDataCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh2()")
 
-        try:
-            # if self.attr_AcquireAvailable_read>0:
-            #    self.attr_WaveformDataCh2_read = self._instrument.getWaveformData(2)
-            attr.set_value(self.attr_WaveformDataCh2_read)
-            self.attr_WaveformSumCh2_read = self._instrument.sumWaveform(self.attr_WaveformDataCh2_read)
-        except Exception,e:
-            self.error_stream("Cannot read WaveformDataCh2 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
+        attr.set_value(self._waveform_data[2])
 
     def is_WaveformDataCh2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None and self._active_channels[2]
+
 #------------------------------------------------------------------
 #    Read WaveformDataCh3 attribute
 #------------------------------------------------------------------
     def read_WaveformDataCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh3()")
 
-        try:
-            # if self.attr_AcquireAvailable_read>0:
-            #    self.attr_WaveformDataCh3_read = self._instrument.getWaveformData(3)
-            attr.set_value(self.attr_WaveformDataCh3_read)
-            self.attr_WaveformSumCh3_read = self._instrument.sumWaveform(self.attr_WaveformDataCh3_read)
-        except Exception,e:
-            self.error_stream("Cannot read WaveformDataCh3 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
+        attr.set_value(self._waveform_data[3])
 
     def is_WaveformDataCh3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None and self._active_channels[3]
+
 #------------------------------------------------------------------
 #    Read WaveformDataCh4 attribute
 #------------------------------------------------------------------
     def read_WaveformDataCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_WaveformDataCh4()")
 
-        try:
-            # if self.attr_AcquireAvailable_read>0:
-            #    self.attr_WaveformDataCh4_read = self._instrument.getWaveformData(4)
-            attr.set_value(self.attr_WaveformDataCh4_read)
-            self.attr_WaveformSumCh4_read = self._instrument.sumWaveform(self.attr_WaveformDataCh4_read)
-        except Exception,e:
-            self.error_stream("Cannot read WaveformDataCh4 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-
+        attr.set_value(self._waveform_data[4])
 
     def is_WaveformDataCh4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None and self._active_channels[4]
 
 #------------------------------------------------------------------
 #    Read CouplingCh1 attribute
@@ -654,7 +597,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
-            self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
+
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
 #------------------------------------------------------------------
@@ -733,7 +676,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_VScaleCh1(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh1()")
         try:
-            os = self._instrument.getVScale(1)
+            #self._vscale = os = self._instrument.getVScale(1)
+            os = self._vscales[1]
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
@@ -746,7 +690,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_VScaleCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh2()")
         try:
-            os = self._instrument.getVScale(2)
+            #os = self._instrument.getVScale(2)
+            os = self._vscales[2]
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
@@ -759,7 +704,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_VScaleCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh3()")
         try:
-            os = self._instrument.getVScale(3)
+            #os = self._instrument.getVScale(3)
+            os = self._vscales[3]
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
@@ -772,7 +718,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_VScaleCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_VScaleCh4()")
         try:
-            os = self._instrument.getVScale(4)
+            #os = self._instrument.getVScale(4)
+            os = self._vscales[4]
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
@@ -784,45 +731,44 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def write_VScaleCh1(self, attr):
         data = attr.get_write_value()
+        self._vscales[1] = data
         self._instrument.setVScale(1,data)
+
     def is_VScaleCh1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Write VScaleCh2 attribute
 #------------------------------------------------------------------
     def write_VScaleCh2(self, attr):
         data = attr.get_write_value()
+        self._vscales[2] = data
         self._instrument.setVScale(2,data)
+
     def is_VScaleCh2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Write VScaleCh3 attribute
 #------------------------------------------------------------------
     def write_VScaleCh3(self, attr):
         data = attr.get_write_value()
+        self._vscales[3] = data
         self._instrument.setVScale(3,data)
+
     def is_VScaleCh3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 #------------------------------------------------------------------
 #    Write VScaleCh4 attribute
 #------------------------------------------------------------------
     def write_VScaleCh4(self, attr):
         data = attr.get_write_value()
+        self._vscales[4] = data
         self._instrument.setVScale(4,data)
+
     def is_VScaleCh4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read HScale attribute
 #------------------------------------------------------------------
@@ -848,10 +794,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._recalc_time_scale()
 
     def is_HScale_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Trig1Source attribute
@@ -872,11 +815,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         data = attr.get_write_value()
         self._instrument.setTriggerSource(1, data)
     def is_Trig1Source_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Trig1Mode attribute
@@ -897,10 +836,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         data = attr.get_write_value()
         self._instrument.setTriggerMode(1, data)
     def is_Trig1Mode_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 
 #------------------------------------------------------------------
@@ -921,11 +857,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def write_TrigLevel(self, attr):
         data = attr.get_write_value()
         self._instrument.setTrigLevel(data)
+
     def is_TrigLevel_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read StateCh1 attribute
@@ -933,9 +867,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_StateCh1(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_StateCh1()")
         try:
-            attr_StateCh1_read = self._instrument.getChanState(1)
-            attr.set_value(attr_StateCh1_read)
-            attr.set_write_value(attr_StateCh1_read)
+            #attr_StateCh1_read = self._instrument.getChanState(1)
+            attr.set_value(self._active_channels[1])
+            attr.set_write_value(self._active_channels[1])
         except Exception,e:
             self.error_stream("Cannot read StateCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -945,18 +879,16 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def write_StateCh1(self, attr):
         data = attr.get_write_value()
-        print "setting", data
+        print "write_StateCh1", data
         try:
             self._instrument.setChanState(1,data)
-            self._active_channels = self._instrument.getChanStateAll()
+            #self._active_channels = self._instrument.getChanStateAll()
+            self._instrument.updateChanStates(self._active_channels)
         except Exception,e:
             self.error_stream("Cannot configure StateCh1 due to: %s"%e)
 
     def is_StateCh1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read StateCh2 attribute
@@ -964,9 +896,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_StateCh2(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_StateCh2()")
         try:
-            attr_StateCh2_read = self._instrument.getChanState(2)
-            attr.set_value(attr_StateCh2_read)
-            attr.set_write_value(attr_StateCh2_read)
+            #attr_StateCh2_read = self._instrument.getChanState(2)
+            attr.set_value(self._active_channels[2])
+            attr.set_write_value(self._active_channels[2])
+            #attr.set_value(attr_StateCh2_read)
+            #attr.set_write_value(attr_StateCh2_read)
         except Exception,e:
             self.error_stream("Cannot read StateCh2 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -978,15 +912,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         data = attr.get_write_value()
         try:
             self._instrument.setChanState(2,data)
-            self._active_channels = self._instrument.getChanStateAll()
+            #self._active_channels = self._instrument.getChanStateAll()
+            self._instrument.updateChanStates(self._active_channels)
         except Exception,e:
             self.error_stream("Cannot configure StateCh2 due to: %s"%e)
 
     def is_StateCh2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read StateCh3 attribute
@@ -994,9 +926,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_StateCh3(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_StateCh3()")
         try:
-            attr_StateCh3_read = self._instrument.getChanState(3)
-            attr.set_value(attr_StateCh3_read)
-            attr.set_write_value(attr_StateCh3_read)
+            #attr_StateCh3_read = self._instrument.getChanState(3)
+            #attr.set_value(attr_StateCh3_read)
+            #attr.set_write_value(attr_StateCh3_read)
+            attr.set_value(self._active_channels[3])
+            attr.set_write_value(self._active_channels[3])
         except Exception,e:
             self.error_stream("Cannot read StateCh3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1008,15 +942,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         data = attr.get_write_value()
         try:
             self._instrument.setChanState(3,data)
-            self._active_channels = self._instrument.getChanStateAll()
+            #self._active_channels = self._instrument.getChanStateAll()
+            self._instrument.updateChanStates(self._active_channels)
         except Exception,e:
             self.error_stream("Cannot configure StateCh3 due to: %s"%e)
 
     def is_StateCh3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read StateCh4 attribute
@@ -1024,9 +956,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_StateCh4(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_StateCh4()")
         try:
-            attr_StateCh4_read = self._instrument.getChanState(4)
-            attr.set_value(attr_StateCh4_read)
-            attr.set_write_value(attr_StateCh4_read)
+            # attr_StateCh4_read = self._instrument.getChanState(4)
+            # attr.set_value(attr_StateCh4_read)
+            # attr.set_write_value(attr_StateCh4_read)
+            attr.set_value(self._active_channels[4])
+            attr.set_write_value(self._active_channels[4])
         except Exception,e:
             self.error_stream("Cannot read StateCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
@@ -1038,16 +972,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         data = attr.get_write_value()
         try:
             self._instrument.setChanState(4,data)
-            self._active_channels = self._instrument.getChanStateAll()
+            #self._active_channels = self._instrument.getChanStateAll()
+            self._instrument.updateChanStates(self._active_channels)
         except Exception,e:
             self.error_stream("Cannot configure StateCh4 due to: %s"%e)
 
     def is_StateCh4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-
+        return self._instrument is not None
 
 #
 # MEASUREMENTS
@@ -1078,10 +1009,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement1_changed = time.time()
 
     def is_Measurement1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement2 attribute
 #------------------------------------------------------------------
@@ -1105,10 +1034,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         except Exception,e:
             self.error_stream("Cannot configure Measurement2 due to: %s"%e)
     def is_Measurement2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement3 attribute
 #------------------------------------------------------------------
@@ -1131,11 +1058,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.setMeasurement(3,data)
         except Exception,e:
             self.error_stream("Cannot configure Measurement3 due to: %s"%e)
+
     def is_Measurement3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement4 attribute
 #------------------------------------------------------------------
@@ -1158,11 +1084,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.setMeasurement(4,data)
         except Exception,e:
             self.error_stream("Cannot configure Measurement4 due to: %s"%e)
+
     def is_Measurement4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement5 attribute
 #------------------------------------------------------------------
@@ -1186,10 +1111,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         except Exception,e:
             self.error_stream("Cannot configure Measurement5 due to: %s"%e)
     def is_Measurement5_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement6 attribute
 #------------------------------------------------------------------
@@ -1213,10 +1136,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         except Exception,e:
             self.error_stream("Cannot configure Measurement6 due to: %s"%e)
     def is_Measurement6_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement7 attribute
 #------------------------------------------------------------------
@@ -1240,10 +1161,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         except Exception,e:
             self.error_stream("Cannot configure Measurement7 due to: %s"%e)
     def is_Measurement7_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
+
 #------------------------------------------------------------------
 #    Read Measurement8 attribute
 #------------------------------------------------------------------
@@ -1266,12 +1185,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.setMeasurement(8,data)
         except Exception,e:
             self.error_stream("Cannot configure Measurement8 due to: %s"%e)
-    def is_Measurement8_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
 
+    def is_Measurement8_allowed(self, req_type):
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement1Source attribute
@@ -1298,10 +1214,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement1_changed = time.time()
 
     def is_Measurement1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement2Source attribute
@@ -1328,10 +1241,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement2_changed = time.time()
 
     def is_Measurement2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement3Source attribute
@@ -1358,10 +1268,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement3_changed = time.time()
 
     def is_Measurement3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement4Source attribute
@@ -1388,10 +1295,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement4_changed = time.time()
 
     def is_Measurement4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement5Source attribute
@@ -1418,10 +1322,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement5_changed = time.time()
 
     def is_Measurement5_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement6Source attribute
@@ -1448,10 +1349,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement6_changed = time.time()
 
     def is_Measurement6_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement7Source attribute
@@ -1478,10 +1376,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement7_changed = time.time()
 
     def is_Measurement7_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement8Source attribute
@@ -1508,11 +1403,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._measurement8_changed = time.time()
 
     def is_Measurement8_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-
+        return self._instrument is not None
 
 #------------------------------------------------------------------
 #    Read Measurement1Res attribute
@@ -1741,6 +1632,16 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         else:
             return False
 
+    def read_WaveformAreaAverage(self, attr):
+        areas = (numpy.sum(wf) for wf in self._waveforms)  # area under each waveform
+        avg = sum(areas) / self._record_length * self._hscale
+        scaled = avg * self._vscales[self.WaveformAverageChannel] # scale to V
+        attr.set_value(scaled)
+
+    def is_WaveformAreaAverage_allowed(self, req_type):
+        return (self.get_state() == PyTango.DevState.RUNNING and
+                self._active_channels[self.WaveformAverageChannel])
+
 #------------------------------------------------------------------
 #    Read Attribute Hardware
 #    Want acquire available and waveform data to be read in order so do it here to be sure
@@ -1764,12 +1665,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() +  ".Start()")
         self.change_state(PyTango.DevState.RUNNING)
         print self._instrument.firmware_version
-        if self._instrument.firmware_version >= (2,):
-            self.acq_thread = Thread(target=self._acquisition_loop)
-            self.acq_thread.start()
-        else:
-            self._instrument.StartAcq()
 
+        # Start acquiring waveforms
+        self.acq_thread = Thread(target=self._acquisition_loop)
+        self.acq_thread.start()
 
 #------------------------------------------------------------------
 #    Is Start command allowed
@@ -1786,11 +1685,9 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Stop(self):
         self.debug_stream("In " + self.get_name() +  ".Stop()")
         self.change_state(PyTango.DevState.ON)
-        if self._instrument.firmware_version >= (2,):
-            self._acquiring.clear()
-        else:
-            self._instrument.StopAcq()
-        #self.mymonitor.terminate()
+
+        # Stop the waveform acquisition
+        self._acquiring.clear()
 
 #------------------------------------------------------------------
 #    Is Stop command allowed
@@ -1870,9 +1767,12 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'WaveformAverageChannel':
             [PyTango.DevShort,
             "The channel on which to perform the summing and averaging (1-4)",
+            [] ],
+        'WaveformAveragePoints':
+            [PyTango.DevShort,
+            "The number of past measurements to include in the average.",
             [] ]
-        }
-
+    }
 
     #    Command definitions
     cmd_list = {
@@ -2016,7 +1916,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'format': "%4.3f"
             } ],
         'VScaleCh1':
-            [[PyTango.DevDouble,
+            [[PyTango.DevFloat,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
@@ -2043,7 +1943,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 1",
             } ],
         'WaveformDataCh1':
-            [[PyTango.DevShort,
+            [[PyTango.DevFloat,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -2080,7 +1980,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 2",
             } ],
         'WaveformDataCh2':
-            [[PyTango.DevShort,
+            [[PyTango.DevFloat,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -2109,7 +2009,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'format': "%4.3f"
             } ],
         'WaveformSumCh3':
-            [[PyTango.DevDouble,
+            [[PyTango.DevFloat,
             PyTango.SCALAR,
             PyTango.READ],
             {
@@ -2117,7 +2017,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 3",
             } ],
         'WaveformDataCh3':
-            [[PyTango.DevShort,
+            [[PyTango.DevFloat,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -2146,7 +2046,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'format': "%4.3f"
             } ],
         'WaveformSumCh4':
-            [[PyTango.DevShort,
+            [[PyTango.DevFloat,
             PyTango.SCALAR,
             PyTango.READ],
             {
@@ -2154,7 +2054,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Waveform Sum channel 4",
             } ],
         'WaveformDataCh4':
-            [[PyTango.DevDouble,
+            [[PyTango.DevFloat,
             PyTango.SPECTRUM,
             PyTango.READ, 10000],
             {
@@ -2428,15 +2328,15 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Coupling channel 4",
                 'label': "Coupling channel 4",
                 } ],
-        # 'SpecialWaveform':
-        #     [[PyTango.DevDouble,
-        #     PyTango.SPECTRUM,
-        #     PyTango.READ, 10000],
-        #     {
-        #         'description': "Special Waveform Data",
-        #         'label': "Waveform",
-        #         'unit': "V"
-        #     } ]
+        'WaveformAreaAverage':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ],
+            {
+                'description': "Average of the area under configured waveform over time",
+                'label': "Waveform Area Average",
+                'unit': "Vs"
+            } ]
 
         }
 
