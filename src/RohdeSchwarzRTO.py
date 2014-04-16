@@ -934,7 +934,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".read_StateCh1()")
         try:
             attr_StateCh1_read = self._instrument.getChanState(1)
-            print "here", attr_StateCh1_read
             attr.set_value(attr_StateCh1_read)
             attr.set_write_value(attr_StateCh1_read)
         except Exception,e:
