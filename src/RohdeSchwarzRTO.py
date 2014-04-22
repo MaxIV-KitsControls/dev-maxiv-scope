@@ -1966,7 +1966,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "WaveformData channel 1",
                 'label': "Channel 1",
-                'unit': "V"
             } ],
         'PositionCh2':
             [[PyTango.DevDouble,
@@ -2003,7 +2002,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "WaveformData channel 2",
                 'label': "Channel 2",
-                'unit': "V"
             } ],
         'PositionCh3':
             [[PyTango.DevDouble,
@@ -2040,7 +2038,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "WaveformData channel 3",
                 'label': "Channel 3",
-                'unit': "V"
             } ],
         'PositionCh4':
             [[PyTango.DevDouble,
@@ -2077,7 +2074,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "WaveformData channel 4",
                 'label': "Channel 4",
-                'unit': "V"
             } ],
         'Measurement1':
             [[PyTango.DevString,
