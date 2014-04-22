@@ -93,6 +93,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         if newstate != self.get_state():
             print "In %s.change_state(%s)"%(self.get_name(),str(newstate))
             self.set_state(newstate)
+            self.push_change_event("State", newstate)
 
     def connectInstrument(self):
         self.debug_stream("In connectInstrument")
@@ -105,6 +106,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                 self._instrument.connect()
                 self._idn = self._instrument.getIDN()
                 #Good to catch timeout specifically
+                #PJB lets stop if if its running, because running implies using our thread
+                self._instrument.StopAcq()
             except Exception, e:
                 self.error_stream("In %s.connectInstrument() Cannot connect due to: %s"%(self.get_name(),e))
                 traceback.print_exc()
@@ -144,7 +147,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.set_change_event('WaveformDataCh2', True, False)
         self.set_change_event('WaveformDataCh3', True, False)
         self.set_change_event('WaveformDataCh4', True, False)
-        self.set_change_event('HScale', True, False)
+        self.set_change_event('TimeScale', True, False)
+        self.set_change_event('State', True, False)
 
 #------------------------------------------------------------------
 #    Device destructor
@@ -223,6 +227,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         print "active channels",  self._active_channels
 
         #faster readout (only available in firmware v2)
+        print "firmware version: ",  self._instrument.firmware_version
         if self._instrument.firmware_version >= (2,):
             self._instrument.SetFastReadout()
             self._instrument.SetDisplayOff()  # no display during run single
@@ -316,7 +321,11 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def read_AcquireAvailable(self, attr):
         # Acquisition is now handled by the thread, so we don't need this..?
+        # Can keep it if we reset every 5000
         self.debug_stream("In " + self.get_name() + ".read_AcquireAvailable()")
+        self.attr_AcquireAvailable_read = int(self._instrument.getCount())
+        attr.set_value(self.attr_AcquireAvailable_read)
+
 
     def is_AcquireAvailable_allowed(self, req_type):
         if self._instrument is not None:
@@ -1708,10 +1717,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() +  ".Standby()")
         if(self._instrument is not None):
             try:
+                self.change_state(PyTango.DevState.STANDBY)
                 self._instrument.GoLocal()
                 self._instrument.close()
                 self._instrument = None
-                self.change_state(PyTango.DevState.STANDBY)
                 self.set_status("No connection to instrument (standby)")
             except:
                 self.error_stream("Cannot disconnect from the instrument")
