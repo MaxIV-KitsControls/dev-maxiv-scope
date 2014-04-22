@@ -11,6 +11,8 @@
 
 """Standard Commands for Programmable Instruments (SCPI) DeviceServer """
 
+from __future__ import division
+
 __all__ = ["RohdeSchwarzRTO", "RohdeSchwarzRTOClass", "main"]
 
 __docformat__ = 'restructuredtext'
@@ -53,7 +55,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #self._instrument.setTriggerMode("NORM")  # assume nothing?
         self._instrument.write("RUNC")
 
-        while self._acquiring.isSet():
+        while self._acquiring.isSet() and self.get_state() == PyTango.DevState.RUNNING:
             try:
                 if not any(self._active_channels.values()):
                     print "no channels active!"
@@ -247,8 +249,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._record_length = 10000
             self._instrument.setRecordLength(self._record_length)
         #
-        self._hscale =  self._instrument.getHScale()
-        self._vscales = self._instrument.getVScaleAll()
+        self._hrange =  self._instrument.getHRange()
+        self._vranges = self._instrument.getVRangeAll()
         #
         #possibly we only read out 1 in n of points in the record (interpolate)
         #print "mode is ", self._instrument.GetWaveformMode(1)
@@ -262,13 +264,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #print "sam rate is ", self._instrument.GetSampleRate()
         self._recalc_time_scale()
 
+        self._vpositions = {1: None, 2: None, 3: None, 4: None}
+
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
         self._waveforms = deque(maxlen=self.WaveformAveragePoints or 100)
 
     def _recalc_time_scale(self):
-        self._time_scale = numpy.linspace(-self._hscale/2 * 10, self._hscale/2 * 10, self._record_length)
+        self._time_scale = numpy.linspace(-self._hrange/2, self._hrange/2, self._record_length)
         self.push_change_event("TimeScale", self._time_scale)
 
 #------------------------------------------------------------------
@@ -416,7 +420,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_TimeScale(self, attr):
         self.debug_stream("In " + self.get_name() + ".read_TimeScale()")
         # TimeScale is a "virtual" attribute that is calculated from
-        # the size of the time window (HScale) and the number of data
+        # the size of the time window (HRange) and the number of data
         # points (RecordLength).
         attr.set_value(self._time_scale)
 
@@ -583,26 +587,28 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
 
 #------------------------------------------------------------------
-#    Read OffsetCh1 attribute
+#    Read PositionCh1 attribute
 #------------------------------------------------------------------
-    def read_OffsetCh1(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_OffsetCh1()")
+    def read_PositionCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_PositionCh1()")
         try:
-            os = self._instrument.getOffset(1)
+            os = self._instrument.getVPosition(1)
+            self._vpositions[1] = os
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
-            self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
+            self.error_stream("Cannot read PositionCh1 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
 
 #------------------------------------------------------------------
-#    Read OffsetCh2 attribute
+#    Read PositionCh2 attribute
 #------------------------------------------------------------------
-    def read_OffsetCh2(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_OffsetCh2()")
+    def read_PositionCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_PositionCh2()")
         try:
-            os = self._instrument.getOffset(2)
+            os = self._instrument.getVPosition(2)
+            self._vpositions[2] = os
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
@@ -610,199 +616,198 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
 #------------------------------------------------------------------
-#    Read OffsetCh3 attribute
+#    Read PositionCh3 attribute
 #------------------------------------------------------------------
-    def read_OffsetCh3(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_OffsetCh3()")
+    def read_PositionCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_PositionCh3()")
         try:
-            os = self._instrument.getOffset(3)
+            os = self._instrument.getVPosition(3)
+            self._vpositions[3] = os
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
-            self.error_stream("Cannot read OffsetCh3 due to: %s"%e)
+            self.error_stream("Cannot read PositionCh3 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
 #------------------------------------------------------------------
-#    Read OffsetCh4 attribute
+#    Read PositionCh4 attribute
 #------------------------------------------------------------------
-    def read_OffsetCh4(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_OffsetCh4()")
+    def read_PositionCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_PositionCh4()")
         try:
-            os = self._instrument.getOffset(4)
+            os = self._instrument.getVPosition(4)
+            self._vpositions[4] = os
             attr.set_value(os)
             attr.set_write_value(os)
         except Exception,e:
-            self.error_stream("Cannot read OffsetCh4 due to: %s"%e)
+            self.error_stream("Cannot read PositionCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
 #------------------------------------------------------------------
-#    Write OffsetCh1 attribute
+#    Write PositionCh1 attribute
 #------------------------------------------------------------------
-    def write_OffsetCh1(self, attr):
+    def write_PositionCh1(self, attr):
         data = attr.get_write_value()
-        self._instrument.setOffset(1,data)
-    def is_OffsetCh1_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-#------------------------------------------------------------------
-#    Write OffsetCh2 attribute
-#------------------------------------------------------------------
-    def write_OffsetCh2(self, attr):
-        data = attr.get_write_value()
-        self._instrument.setOffset(2,data)
-    def is_OffsetCh2_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-#------------------------------------------------------------------
-#    Write OffsetCh3 attribute
-#------------------------------------------------------------------
-    def write_OffsetCh3(self, attr):
-        data = attr.get_write_value()
-        self._instrument.setOffset(3,data)
-    def is_OffsetCh3_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-#------------------------------------------------------------------
-#    Write OffsetCh4 attribute
-#------------------------------------------------------------------
-    def write_OffsetCh4(self, attr):
-        data = attr.get_write_value()
-        self._instrument.setOffset(4,data)
-    def is_OffsetCh4_allowed(self, req_type):
-        if self._instrument is not None:
-            return True
-        else:
-            return False
-#------------------------------------------------------------------
-#    Read VScaleCh1 attribute
-#------------------------------------------------------------------
-    def read_VScaleCh1(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_VScaleCh1()")
-        try:
-            #self._vscale = os = self._instrument.getVScale(1)
-            os = self._vscales[1]
-            attr.set_value(os)
-            attr.set_write_value(os)
-        except Exception,e:
-            self.error_stream("Cannot read VScaleCh1 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-#------------------------------------------------------------------
-#    Read VScaleCh2 attribute
-#------------------------------------------------------------------
-    def read_VScaleCh2(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_VScaleCh2()")
-        try:
-            #os = self._instrument.getVScale(2)
-            os = self._vscales[2]
-            attr.set_value(os)
-            attr.set_write_value(os)
-        except Exception,e:
-            self.error_stream("Cannot read VScaleCh2 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-#------------------------------------------------------------------
-#    Read VScaleCh3 attribute
-#------------------------------------------------------------------
-    def read_VScaleCh3(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_VScaleCh3()")
-        try:
-            #os = self._instrument.getVScale(3)
-            os = self._vscales[3]
-            attr.set_value(os)
-            attr.set_write_value(os)
-        except Exception,e:
-            self.error_stream("Cannot read VScaleCh3 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-#------------------------------------------------------------------
-#    Read VScaleCh4 attribute
-#------------------------------------------------------------------
-    def read_VScaleCh4(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_VScaleCh4()")
-        try:
-            #os = self._instrument.getVScale(4)
-            os = self._vscales[4]
-            attr.set_value(os)
-            attr.set_write_value(os)
-        except Exception,e:
-            self.error_stream("Cannot read VScaleCh4 due to: %s"%e)
-            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
-            return
-#------------------------------------------------------------------
-#    Write VScaleCh1 attribute
-#------------------------------------------------------------------
-    def write_VScaleCh1(self, attr):
-        data = attr.get_write_value()
-        self._vscales[1] = data
-        self._instrument.setVScale(1,data)
-
-    def is_VScaleCh1_allowed(self, req_type):
+        self._vpositions[1] = data
+        self._instrument.setVPosition(1,data)
+    def is_PositionCh1_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
-#    Write VScaleCh2 attribute
+#    Write PositionCh2 attribute
 #------------------------------------------------------------------
-    def write_VScaleCh2(self, attr):
+    def write_PositionCh2(self, attr):
         data = attr.get_write_value()
-        self._vscales[2] = data
-        self._instrument.setVScale(2,data)
-
-    def is_VScaleCh2_allowed(self, req_type):
+        self._vpositions[2] = data
+        self._instrument.setVPosition(2,data)
+    def is_PositionCh2_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
-#    Write VScaleCh3 attribute
+#    Write PositionCh3 attribute
 #------------------------------------------------------------------
-    def write_VScaleCh3(self, attr):
+    def write_PositionCh3(self, attr):
         data = attr.get_write_value()
-        self._vscales[3] = data
-        self._instrument.setVScale(3,data)
-
-    def is_VScaleCh3_allowed(self, req_type):
-        return self._instrument is not None
-#------------------------------------------------------------------
-#    Write VScaleCh4 attribute
-#------------------------------------------------------------------
-    def write_VScaleCh4(self, attr):
-        data = attr.get_write_value()
-        self._vscales[4] = data
-        self._instrument.setVScale(4,data)
-
-    def is_VScaleCh4_allowed(self, req_type):
+        self._vpositions[3] = data
+        self._instrument.setVPosition(3,data)
+    def is_PositionCh3_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
-#    Read HScale attribute
+#    Write PositionCh4 attribute
 #------------------------------------------------------------------
-    def read_HScale(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_HScale()")
+    def write_PositionCh4(self, attr):
+        data = attr.get_write_value()
+        self._vpositions[4] = data
+        self._instrument.setVPosition(4,data)
+    def is_PositionCh4_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Read VRangeCh1 attribute
+#------------------------------------------------------------------
+    def read_VRangeCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VRangeCh1()")
         try:
-            os = self._instrument.getHScale()
+            #self._vrange = os = self._instrument.getVRange(1)
+            os = self._vranges[1]
             attr.set_value(os)
             attr.set_write_value(os)
-            if os != self._hscale:
-                self._hscale = os
+        except Exception,e:
+            self.error_stream("Cannot read VRangeCh1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VRangeCh2 attribute
+#------------------------------------------------------------------
+    def read_VRangeCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VRangeCh2()")
+        try:
+            #os = self._instrument.getVRange(2)
+            os = self._vranges[2]
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VRangeCh2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VRangeCh3 attribute
+#------------------------------------------------------------------
+    def read_VRangeCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VRangeCh3()")
+        try:
+            #os = self._instrument.getVRange(3)
+            os = self._vranges[3]
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VRangeCh3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VRangeCh4 attribute
+#------------------------------------------------------------------
+    def read_VRangeCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VRangeCh4()")
+        try:
+            #os = self._instrument.getVRange(4)
+            os = self._vranges[4]
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VRangeCh4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write VRangeCh1 attribute
+#------------------------------------------------------------------
+    def write_VRangeCh1(self, attr):
+        data = attr.get_write_value()
+        self._vranges[1] = data
+        print data
+        self._instrument.setVRange(1, data)
+
+    def is_VRangeCh1_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write VRangeCh2 attribute
+#------------------------------------------------------------------
+    def write_VRangeCh2(self, attr):
+        data = attr.get_write_value()
+        self._vranges[2] = data
+        self._instrument.setVRange(2,data)
+
+    def is_VRangeCh2_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write VRangeCh3 attribute
+#------------------------------------------------------------------
+    def write_VRangeCh3(self, attr):
+        data = attr.get_write_value()
+        self._vranges[3] = data
+        self._instrument.setVRange(3,data)
+
+    def is_VRangeCh3_allowed(self, req_type):
+        return self._instrument is not None
+#------------------------------------------------------------------
+#    Write VRangeCh4 attribute
+#------------------------------------------------------------------
+    def write_VRangeCh4(self, attr):
+        data = attr.get_write_value()
+        self._vranges[4] = data
+        self._instrument.setVRange(4,data)
+
+    def is_VRangeCh4_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Read HRange attribute
+#------------------------------------------------------------------
+    def read_HRange(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_HRange()")
+        try:
+            os = self._instrument.getHRange()
+            attr.set_value(os)
+            attr.set_write_value(os)
+            if os != self._hrange:
+                self._hrange = os
                 self._recalc_time_scale()
         except:
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
 
 #------------------------------------------------------------------
-#    Write HScale attribute
+#    Write HRange attribute
 #------------------------------------------------------------------
-    def write_HScale(self, attr):
+    def write_HRange(self, attr):
         data = attr.get_write_value()
-        self._instrument.setHScale(data)
-        self._hscale = data
+        self._instrument.setHRange(data)
+        self._hrange = data
         self._recalc_time_scale()
 
-    def is_HScale_allowed(self, req_type):
+    def is_HRange_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1642,14 +1647,17 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return False
 
     def read_WaveformAreaAverage(self, attr):
-        areas = (numpy.sum(wf) for wf in self._waveforms)  # area under each waveform
-        avg = sum(areas) / self._record_length * self._hscale
-        scaled = avg * self._vscales[self.WaveformAverageChannel] # scale to V
-        attr.set_value(scaled)
+        ch = self.WaveformAverageChannel
+        vpos = self._vpositions[ch]
+        vrange = self._vranges[ch] / 256
+        mean = numpy.mean([numpy.sum(wf * vrange + vpos) for wf in self._waveforms])
+        avg = (mean / self._record_length) * self._hrange
+        attr.set_value(avg)
 
     def is_WaveformAreaAverage_allowed(self, req_type):
-        return (self.get_state() == PyTango.DevState.RUNNING and
-                self._active_channels[self.WaveformAverageChannel])
+        return all((self.get_state() == PyTango.DevState.RUNNING,
+                    self._active_channels[self.WaveformAverageChannel],
+                    self._vpositions[self.WaveformAverageChannel] is not None))
 
 #------------------------------------------------------------------
 #    Read Attribute Hardware
@@ -1870,13 +1878,13 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "Samples",
                 'format': "%4.0f"
                 } ],
-        'HScale':
+        'HRange':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "Time scale",
-                'label': "Horizontal (time) scale",
+                'description': "Time range",
+                'label': "Horizontal (time) range",
                 'unit': "s",
                 'min value': 1e-8,
                 'max value': 1.0,
@@ -1914,23 +1922,23 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'format': "%4.3f"
             } ],
 
-        'OffsetCh1':
+        'PositionCh1':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "Offset channel 1",
-                'label': "Offset channel 1",
+                'description': "Position channel 1",
+                'label': "Position channel 1",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'VScaleCh1':
+        'VRangeCh1':
             [[PyTango.DevFloat,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "VScale channel 1",
-                'label': "Vertical scale channel 1",
+                'description': "VRange channel 1",
+                'label': "Vertical range channel 1",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
@@ -1960,23 +1968,23 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Channel 1",
                 'unit': "V"
             } ],
-        'OffsetCh2':
+        'PositionCh2':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "Offset channel 2",
-                'label': "Offset channel 2",
+                'description': "Position channel 2",
+                'label': "Position channel 2",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'VScaleCh2':
+        'VRangeCh2':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "VScale channel 2",
-                'label': "Vertical scale channel 2",
+                'description': "VRange channel 2",
+                'label': "Vertical range channel 2",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
@@ -1997,23 +2005,23 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Channel 2",
                 'unit': "V"
             } ],
-        'OffsetCh3':
+        'PositionCh3':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "Offset channel 3",
-                'label': "Offset channel 3",
+                'description': "Position channel 3",
+                'label': "Position channel 3",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'VScaleCh3':
+        'VRangeCh3':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "VScale channel 3",
-                'label': "Vertical scale channel 3",
+                'description': "VRange channel 3",
+                'label': "Vertical range channel 3",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
@@ -2034,23 +2042,23 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Channel 3",
                 'unit': "V"
             } ],
-        'OffsetCh4':
+        'PositionCh4':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "Offset channel 4",
-                'label': "Offset channel 4",
+                'description': "Position channel 4",
+                'label': "Position channel 4",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'VScaleCh4':
+        'VRangeCh4':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
             PyTango.READ_WRITE],
             {
-                'description': "VScale channel 4",
-                'label': "Vertical scale channel 4",
+                'description': "VRange channel 4",
+                'label': "Vertical range channel 4",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
