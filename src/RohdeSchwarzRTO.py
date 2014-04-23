@@ -1711,7 +1711,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def is_Stop_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_Stop_allowed()")
-        if self.get_state() in [PyTango.DevState.RUNNING,PyTango.DevState.ON]:
+        if self.get_state() in [PyTango.DevState.RUNNING, PyTango.DevState.ON]:
             return True
         else:
             return False
@@ -1725,6 +1725,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() +  ".Standby()")
         if(self._instrument is not None):
             try:
+                self._acquiring.clear()  # stop acquiring waveforms
                 self.change_state(PyTango.DevState.STANDBY)
                 self._instrument.GoLocal()
                 self._instrument.close()
@@ -1739,7 +1740,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def is_Standby_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_Standby_allowed()")
-        if self.get_state() in [PyTango.DevState.ON,PyTango.DevState.RUNNING]:
+        if self.get_state() in [PyTango.DevState.ON, PyTango.DevState.RUNNING]:
             return True
         else:
             return False
@@ -1758,7 +1759,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def is_On_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_On_allowed()")
-        if self.get_state() in [PyTango.DevState.STANDBY,PyTango.DevState.RUNNING,PyTango.DevState.ON]:
+        if self.get_state() in (PyTango.DevState.STANDBY, PyTango.DevState.RUNNING,
+                                PyTango.DevState.ON):
             return True
         else:
             return False
