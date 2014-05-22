@@ -41,6 +41,17 @@ from collections import deque
 ##
 ##############################################################################
 
+
+def channel_area_average(waveforms, vscale):
+    # average the waveform areas, discarding positive values (for PSS use)
+    # This is too specific and should really be done by a separate device.
+    sums = [numpy.sum(numpy.where(wf <= 0, wf, 0) * vscale)
+            for wf in waveforms]
+    if len(sums) > 0:
+        return numpy.mean(sums)
+    return 0
+
+
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     _instrument = None
@@ -1844,55 +1855,31 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         else:
             return False
 
-    def _channel_area_average(self, channel, vrange, vpos):
-        # average the waveform areas, discarding positive values (for PSS use)
-        # This is too specific and should really be done by a separate device.
-        sums = [numpy.sum(numpy.where(wf <= -vpos, wf + vpos, 0) * vrange)
-                for wf in self._waveforms[channel]]
-        if len(sums) > 0:
-            return numpy.mean(sums)
-        return 0
+    def _calculate_area_average(self, ch):
+        dv = self._vranges[ch] / 256
+        avg = channel_area_average(self._waveforms[ch], dv)
+        return (avg / self._record_length) * self._hrange
 
     def read_WaveformAreaAverageChannel1(self, attr):
-        ch = 1
-        vrange = self._vranges[ch] / 256
-        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
-        result = (avg / self._record_length) * self._hrange
-        attr.set_value(result)
+        attr.set_value(self._calculate_area_average(1))
 
     def is_WaveformAreaAverageChannel1_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel2(self, attr):
-        ch = 2
-        vrange = self._vranges[ch] / 256
-        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
-        result = (avg / self._record_length) * self._hrange
-        attr.set_value(result)
+        attr.set_value(self._calculate_area_average(2))
 
     def is_WaveformAreaAverageChannel2_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel3(self, attr):
-        ch = 3
-        vrange = self._vranges[ch] / 256
-        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
-        result = (avg / self._record_length) * self._hrange
-        attr.set_value(result)
+        attr.set_value(self._calculate_area_average(3))
 
     def is_WaveformAreaAverageChannel3_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel4(self, attr):
-        ch = 4
-        vrange = self._vranges[ch] / 256
-        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
-        result = (avg / self._record_length) * self._hrange
-        attr.set_value(result)
+        attr.set_value(self._calculate_area_average(4))
 
     def is_WaveformAreaAverageChannel4_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
