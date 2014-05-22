@@ -788,6 +788,58 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         return self._instrument is not None
 
 
+#------------------------------------------------------------------
+#    Read VScaleCh1 attribute
+#------------------------------------------------------------------
+    def read_VScaleCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VScaleCh1()")
+        try:
+            os = self._instrument.getVScale(1)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VScaleCh1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VScaleCh2 attribute
+#------------------------------------------------------------------
+    def read_VScaleCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VScaleCh2()")
+        try:
+            os = self._instrument.getVScale(2)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VScaleCh2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VScaleCh3 attribute
+#------------------------------------------------------------------
+    def read_VScaleCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VScaleCh3()")
+        try:
+            os = self._instrument.getVScale(3)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VScaleCh3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read VScaleCh4 attribute
+#------------------------------------------------------------------
+    def read_VScaleCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_VScaleCh4()")
+        try:
+            os = self._instrument.getVScale(4)
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read VScaleCh4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
 
 #------------------------------------------------------------------
 #    Read VRangeCh1 attribute
@@ -845,6 +897,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot read VRangeCh4 due to: %s"%e)
             attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
             return
+
 #------------------------------------------------------------------
 #    Write VRangeCh1 attribute
 #------------------------------------------------------------------
@@ -887,6 +940,45 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._instrument.setVRange(4,data)
 
     def is_VRangeCh4_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write VScaleCh1 attribute
+#------------------------------------------------------------------
+    def write_VScaleCh1(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setVScale(1, data)
+
+    def is_VScaleCh1_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write VScaleCh2 attribute
+#------------------------------------------------------------------
+    def write_VScaleCh2(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setVScale(2,data)
+
+    def is_VScaleCh2_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write VScaleCh3 attribute
+#------------------------------------------------------------------
+    def write_VScaleCh3(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setVScale(3,data)
+
+    def is_VScaleCh3_allowed(self, req_type):
+        return self._instrument is not None
+#------------------------------------------------------------------
+#    Write VScaleCh4 attribute
+#------------------------------------------------------------------
+    def write_VScaleCh4(self, attr):
+        data = attr.get_write_value()
+        self._instrument.setVScale(4,data)
+
+    def is_VScaleCh4_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1755,7 +1847,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def _channel_area_average(self, channel, vrange, vpos):
         # average the waveform areas, discarding positive values (for PSS use)
         # This is too specific and should really be done by a separate device.
-        sums = [numpy.sum(numpy.where(wf <= 0, wf, 0) * vrange + vpos)
+        sums = [numpy.sum(numpy.where(wf <= -vpos, wf + vpos, 0) * vrange)
                 for wf in self._waveforms[channel]]
         if len(sums) > 0:
             return numpy.mean(sums)
@@ -1886,7 +1978,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def is_Standby_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_Standby_allowed()")
-        if self.get_state() in [PyTango.DevState.ON, PyTango.DevState.RUNNING]:
+        if self.get_state() in [PyTango.DevState.ON]:
             return True
         else:
             return False
@@ -2128,7 +2220,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Position channel 2",
                 'label': "Position channel 2",
-                'unit': "V",
+                'unit': "div",
                 'format': "%4.3f"
             } ],
         'OffsetCh2':
@@ -2175,7 +2267,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Position channel 3",
                 'label': "Position channel 3",
-                'unit': "V",
+                'unit': "div",
                 'format': "%4.3f"
             } ],
         'OffsetCh3':
@@ -2221,7 +2313,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Position channel 4",
                 'label': "Position channel 4",
-                'unit': "V",
+                'unit': "div",
                 'format': "%4.3f"
             } ],
         'OffsetCh4':
@@ -2561,8 +2653,48 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Average of the area under the channel 4 waveform over time",
                 'label': "Channel 4 Waveform Area Average",
                 'unit': "Vs"
-            } ]
+            } ],
 
+        'VScaleCh1':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "VScale channel 1",
+                'label': "Vertical scale channel 1",
+                'unit': "V/div",
+                'format': "%4.3f"
+            } ],
+        'VScaleCh2':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "VScale channel 2",
+                'label': "Vertical scale channel 2",
+                'unit': "V/div",
+                'format': "%4.3f"
+            } ],
+        'VScaleCh3':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "VScale channel 3",
+                'label': "Vertical scale channel 3",
+                'unit': "V/div",
+                'format': "%4.3f"
+            } ],
+        'VScaleCh4':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "VScale channel 4",
+                'label': "Vertical scale channel 4",
+                'unit': "V/div",
+                'format': "%4.3f"
+            } ],
 
         }
 
