@@ -264,6 +264,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._recalc_time_scale()
 
         self._vpositions = {1: None, 2: None, 3: None, 4: None}
+        self._offsets = {1: 0, 2: 0, 3: 0, 4: 0}
 
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
@@ -686,6 +687,107 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._instrument.setVPosition(4,data)
     def is_PositionCh4_allowed(self, req_type):
         return self._instrument is not None
+
+
+
+#------------------------------------------------------------------
+#    Read OffsetCh1 attribute
+#------------------------------------------------------------------
+    def read_OffsetCh1(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_OffsetCh1()")
+        try:
+            os = self._instrument.getOffset(1)
+            self._offsets[1] = os
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read OffsetCh1 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+
+#------------------------------------------------------------------
+#    Read OffsetCh2 attribute
+#------------------------------------------------------------------
+    def read_OffsetCh2(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_OffsetCh2()")
+        try:
+            os = self._instrument.getOffset(2)
+            self._offsets[2] = os
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read OffsetCh2 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read OffsetCh3 attribute
+#------------------------------------------------------------------
+    def read_OffsetCh3(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_OffsetCh3()")
+        try:
+            os = self._instrument.getOffset(3)
+            self._offsets[3] = os
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read OffsetCh3 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Read OffsetCh4 attribute
+#------------------------------------------------------------------
+    def read_OffsetCh4(self, attr):
+        self.debug_stream("In " + self.get_name() + ".read_OffsetCh4()")
+        try:
+            os = self._instrument.getOffset(4)
+            self._offsets[4] = os
+            attr.set_value(os)
+            attr.set_write_value(os)
+        except Exception,e:
+            self.error_stream("Cannot read OffsetCh4 due to: %s"%e)
+            attr.set_value_date_quality("",time.time(),PyTango.AttrQuality.ATTR_INVALID)
+            return
+#------------------------------------------------------------------
+#    Write OffsetCh1 attribute
+#------------------------------------------------------------------
+    def write_OffsetCh1(self, attr):
+        data = attr.get_write_value()
+        self._offsets[1] = data
+        self._instrument.setOffset(1, data)
+    def is_OffsetCh1_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write OffsetCh2 attribute
+#------------------------------------------------------------------
+    def write_OffsetCh2(self, attr):
+        data = attr.get_write_value()
+        self._offsets[2] = data
+        self._instrument.setOffset(2, data)
+    def is_OffsetCh2_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write OffsetCh3 attribute
+#------------------------------------------------------------------
+    def write_OffsetCh3(self, attr):
+        data = attr.get_write_value()
+        self._offset[3] = data
+        self._instrument.setOffset(3,data)
+    def is_OffsetCh3_allowed(self, req_type):
+        return self._instrument is not None
+
+#------------------------------------------------------------------
+#    Write OffsetCh4 attribute
+#------------------------------------------------------------------
+    def write_OffsetCh4(self, attr):
+        data = attr.get_write_value()
+        self._offset[4] = data
+        self._instrument.setOffset(4,data)
+    def is_OffsetCh4_allowed(self, req_type):
+        return self._instrument is not None
+
+
 
 #------------------------------------------------------------------
 #    Read VRangeCh1 attribute
@@ -1662,8 +1764,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformAreaAverageChannel1(self, attr):
         ch = 1
         vrange = self._vranges[ch] / 256
-        vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, vpos)
+        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
+        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
         result = (avg / self._record_length) * self._hrange
         attr.set_value(result)
 
@@ -1673,8 +1775,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformAreaAverageChannel2(self, attr):
         ch = 2
         vrange = self._vranges[ch] / 256
-        vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, vpos)
+        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
+        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
         result = (avg / self._record_length) * self._hrange
         attr.set_value(result)
 
@@ -1684,8 +1786,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformAreaAverageChannel3(self, attr):
         ch = 3
         vrange = self._vranges[ch] / 256
-        vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, vpos)
+        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
+        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
         result = (avg / self._record_length) * self._hrange
         attr.set_value(result)
 
@@ -1695,8 +1797,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def read_WaveformAreaAverageChannel4(self, attr):
         ch = 4
         vrange = self._vranges[ch] / 256
-        vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
-        avg = self._channel_area_average(ch, vrange, vpos)
+        #vpos = (self._vranges[ch] / 10) * self._vpositions[ch]
+        avg = self._channel_area_average(ch, vrange, -self._offsets[ch])
         result = (avg / self._record_length) * self._hrange
         attr.set_value(result)
 
@@ -1971,6 +2073,16 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Position channel 1",
                 'label': "Position channel 1",
+                'unit': "div",
+                'format': "%4.3f"
+            } ],
+        'OffsetCh1':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Offset channel 1",
+                'label': "Offset channel 1",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
@@ -2019,6 +2131,17 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "V",
                 'format': "%4.3f"
             } ],
+        'OffsetCh2':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Offset channel 2",
+                'label': "Offset channel 2",
+                'unit': "V",
+                'format': "%4.3f"
+            } ],
+
         'VRangeCh2':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -2055,6 +2178,16 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "V",
                 'format': "%4.3f"
             } ],
+        'OffsetCh3':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Offset channel 3",
+                'label': "Offset channel 3",
+                'unit': "V",
+                'format': "%4.3f"
+            } ],
         'VRangeCh3':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
@@ -2088,6 +2221,16 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Position channel 4",
                 'label': "Position channel 4",
+                'unit': "V",
+                'format': "%4.3f"
+            } ],
+        'OffsetCh4':
+            [[PyTango.DevDouble,
+            PyTango.SCALAR,
+            PyTango.READ_WRITE],
+            {
+                'description': "Offset channel 4",
+                'label': "Offset channel 4",
                 'unit': "V",
                 'format': "%4.3f"
             } ],
