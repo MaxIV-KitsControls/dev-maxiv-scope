@@ -42,13 +42,14 @@ from collections import deque
 ##############################################################################
 
 
-def channel_area_average(waveforms, vscale):
-    # average the waveform areas, discarding positive values (for PSS use)
-    # This is too specific and should really be done by a separate device.
+def channel_area_average(waveforms, vscale, t1, t_window):
+    # sum the waveform areas, discarding positive values and then
+    # divide by the window, to get charge per time.  Note: This is too
+    # specific and should really be done by a separate device.
     sums = [numpy.sum(numpy.where(wf <= 0, wf, 0) * vscale)
-            for wf in waveforms]
+            for t, wf in waveforms if (t1 - t) < t_window]
     if len(sums) > 0:
-        return numpy.mean(sums)
+        return sum(sums) / t_window
     return 0
 
 
@@ -77,6 +78,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                 waveforms = self._instrument.acquire_single_polling(
                     self._active_channels, self._record_length)
 
+                t = time.time()
                 for i, wf in waveforms.items():
                     # scale to scope display divisions, that is +/-5.
                     swf = (wf / 127.) * 5
@@ -85,7 +87,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                     self.push_change_event(wf_name, swf)
                     # Buffer waveforms for average area calculation
                     if self._active_channels[i]:
-                        self._waveforms[i].append(waveforms[i])
+                        self._waveforms[i].append((t, waveforms[i]))
 
                 # If the waveform lengths have changed, the timescale needs
                 # recalculating.
@@ -280,11 +282,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
+        # Note: the number of points may need to be adjusted if the time window
+        # is large and the trigger frequency high. 1000 should cover 10s at 100Hz.
         self._waveforms = {
-            1: deque(maxlen=self.WaveformAveragePoints or 100),
-            2: deque(maxlen=self.WaveformAveragePoints or 100),
-            3: deque(maxlen=self.WaveformAveragePoints or 100),
-            4: deque(maxlen=self.WaveformAveragePoints or 100)
+            1: deque(maxlen=1000),
+            2: deque(maxlen=1000),
+            3: deque(maxlen=1000),
+            4: deque(maxlen=1000)
         }
 
     def _recalc_time_scale(self):
@@ -1857,7 +1861,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     def _calculate_area_average(self, ch):
         dv = self._vranges[ch] / 256
-        avg = channel_area_average(self._waveforms[ch], dv)
+        avg = channel_area_average(self._waveforms[ch], dv, time.time(),
+                                   t_window=self.WaveformAreaAverageTimeWindow)
         return (avg / self._record_length) * self._hrange
 
     def read_WaveformAreaAverageChannel1(self, attr):
@@ -2006,12 +2011,13 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
     device_property_list = {
         'Instrument':
             [PyTango.DevString,
-            "The name of the instrument to use",
-            [] ],
-        'WaveformAveragePoints':
-            [PyTango.DevShort,
-            "The number of past measurements to include in the waveform averages.",
-            [] ]
+             "The name of the instrument to use",
+             [] ],
+        'WaveformAreaAverageTimeWindow':
+            [PyTango.DevFloat,
+             "The number of seconds to average over.",
+             [5.0]
+         ]
     }
 
     #    Command definitions
@@ -2028,8 +2034,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
         'Standby':
             [[PyTango.DevVoid, "none"],
             [PyTango.DevBoolean, "none"]],
-        }
-
+    }
 
     #    Attribute definitions
     attr_list = {
@@ -2612,7 +2617,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Average of the area under the channel 1 waveform over time",
                 'label': "Channel 1 Waveform Area Average",
-                'unit': "Vs"
+                'unit': "C/s"
             } ],
         'WaveformAreaAverageChannel2':
             [[PyTango.DevDouble,
@@ -2621,7 +2626,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Average of the area under the channel 2 waveform over time",
                 'label': "Channel 2 Waveform Area Average",
-                'unit': "Vs"
+                'unit': "C/s"
             } ],
         'WaveformAreaAverageChannel3':
             [[PyTango.DevDouble,
@@ -2630,7 +2635,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Average of the area under the channel 3 waveform over time",
                 'label': "Channel 3 Waveform Area Average",
-                'unit': "Vs"
+                'unit': "C/s"
             } ],
         'WaveformAreaAverageChannel4':
             [[PyTango.DevDouble,
@@ -2639,7 +2644,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             {
                 'description': "Average of the area under the channel 4 waveform over time",
                 'label': "Channel 4 Waveform Area Average",
-                'unit': "Vs"
+                'unit': "C/s"
             } ],
 
         'VScaleCh1':
