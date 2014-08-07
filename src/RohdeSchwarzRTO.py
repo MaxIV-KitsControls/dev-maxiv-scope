@@ -1857,14 +1857,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         # separate device.
 
         vscale = self._vranges[ch] / 256
-        vpos = self._vpositions[ch]  # vertical position, right?
-        waveforms = self._waveforms[ch]  # the list of latest waveforms
+        vpos = self._vpositions[ch]
+        waveforms = self._waveforms[ch]  # the latest waveforms
         t1 = time.time()
         t_window = self.WaveformAreaAverageTimeWindow
 
         # sum each waveform in the time window, discarding positive values
         sums = [numpy.sum(numpy.where(wf < vpos, wf - vpos, 0) * vscale)
-                for t, wf in waveforms if (t1 - t) < t_window]
+                for t, wf in waveforms
+                if (t1 - t) < t_window]
         if len(sums) > 0:
             avg = (sum(sums)                               # = total current
                    * (self._hrange / self._record_length)  # = total charge
