@@ -17,18 +17,18 @@ __all__ = ["RohdeSchwarzRTO", "RohdeSchwarzRTOClass", "main"]
 
 __docformat__ = 'restructuredtext'
 
-import PyTango
-import sys
-from threading import Thread, Lock, Event
+from collections import deque
 import socket
+import sys
+from threading import Thread, Event
 import time
 import traceback
-import numpy,struct,copy
-from types import StringType
-from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
-#from monitor import Monitor
 
-from collections import deque
+import numpy
+import PyTango
+
+from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
+
 
 ##############################################################################
 ## Device States Description
@@ -40,17 +40,6 @@ from collections import deque
 ## FAULT :     Communication error with the instrument.
 ##
 ##############################################################################
-
-
-def channel_area_average(waveforms, vscale, t1, t_window):
-    # sum the waveform areas, discarding positive values and then
-    # divide by the window, to get charge per time.  Note: This is too
-    # specific and should really be done by a separate device.
-    sums = [numpy.sum(numpy.where(wf <= 0, wf, 0) * vscale)
-            for t, wf in waveforms if (t1 - t) < t_window]
-    if len(sums) > 0:
-        return sum(sums) / t_window
-    return 0
 
 
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
@@ -1440,7 +1429,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement1Source due to: %s"%e)
         self._measurement1_changed = time.time()
 
-    def is_Measurement1_allowed(self, req_type):
+    def is_Measurement1Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1467,7 +1456,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement2Source due to: %s"%e)
         self._measurement2_changed = time.time()
 
-    def is_Measurement2_allowed(self, req_type):
+    def is_Measurement2Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1494,7 +1483,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement3Source due to: %s"%e)
         self._measurement3_changed = time.time()
 
-    def is_Measurement3_allowed(self, req_type):
+    def is_Measurement3Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1521,7 +1510,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement4Source due to: %s"%e)
         self._measurement4_changed = time.time()
 
-    def is_Measurement4_allowed(self, req_type):
+    def is_Measurement4Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1548,7 +1537,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement5Source due to: %s"%e)
         self._measurement5_changed = time.time()
 
-    def is_Measurement5_allowed(self, req_type):
+    def is_Measurement5Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1575,7 +1564,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement6Source due to: %s"%e)
         self._measurement6_changed = time.time()
 
-    def is_Measurement6_allowed(self, req_type):
+    def is_Measurement6Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1602,7 +1591,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement7Source due to: %s"%e)
         self._measurement7_changed = time.time()
 
-    def is_Measurement7_allowed(self, req_type):
+    def is_Measurement7Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1629,7 +1618,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self.error_stream("Cannot configure Measurement8Source due to: %s"%e)
         self._measurement8_changed = time.time()
 
-    def is_Measurement8_allowed(self, req_type):
+    def is_Measurement8Source_allowed(self, req_type):
         return self._instrument is not None
 
 #------------------------------------------------------------------
@@ -1860,31 +1849,66 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             return False
 
     def _calculate_area_average(self, ch):
-        dv = self._vranges[ch] / 256
-        avg = channel_area_average(self._waveforms[ch], dv, time.time(),
-                                   t_window=self.WaveformAreaAverageTimeWindow)
-        return (avg / self._record_length) * self._hrange
+
+        # Here we calculate the *average charge per second* during the last
+        # N seconds. Assume that the voltage is 1:1 with the current of the CT.
+
+        # Note: This is too CT specific and should really be done by a
+        # separate device.
+
+        vscale = self._vranges[ch] / 256
+        vpos = self._vpositions[ch]  # vertical position, right?
+        waveforms = self._waveforms[ch]  # the list of latest waveforms
+        t1 = time.time()
+        t_window = self.WaveformAreaAverageTimeWindow
+
+        # sum each waveform in the time window, discarding positive values
+        sums = [numpy.sum(numpy.where(wf < vpos, wf - vpos, 0) * vscale)
+                for t, wf in waveforms if (t1 - t) < t_window]
+        if len(sums) > 0:
+            avg = (sum(sums)                               # = total current
+                   * (self._hrange / self._record_length)  # = total charge
+                   / t_window)                             # = avg charge per s
+        else:
+            avg = None  # no measurements were made
+        return avg
 
     def read_WaveformAreaAverageChannel1(self, attr):
-        attr.set_value(self._calculate_area_average(1))
+        avg = self._calculate_area_average(1)
+        if avg is None:
+            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
+        else:
+            attr.set_value(avg)
 
     def is_WaveformAreaAverageChannel1_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel2(self, attr):
-        attr.set_value(self._calculate_area_average(2))
+        avg = self._calculate_area_average(2)
+        if avg is None:
+            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
+        else:
+            attr.set_value(avg)
 
     def is_WaveformAreaAverageChannel2_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel3(self, attr):
-        attr.set_value(self._calculate_area_average(3))
+        avg = self._calculate_area_average(3)
+        if avg is None:
+            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
+        else:
+            attr.set_value(avg)
 
     def is_WaveformAreaAverageChannel3_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
 
     def read_WaveformAreaAverageChannel4(self, attr):
-        attr.set_value(self._calculate_area_average(4))
+        avg = self._calculate_area_average(4)
+        if avg is None:
+            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
+        else:
+            attr.set_value(avg)
 
     def is_WaveformAreaAverageChannel4_allowed(self, req_type):
         return self.get_state() == PyTango.DevState.RUNNING
@@ -2615,7 +2639,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.SCALAR,
             PyTango.READ],
             {
-                'description': "Average of the area under the channel 1 waveform over time",
+                'description': "Average of the area under the channel 1 waveform over time, disregarding positive values.",
                 'label': "Channel 1 Waveform Area Average",
                 'unit': "C/s"
             } ],
@@ -2624,7 +2648,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.SCALAR,
             PyTango.READ],
             {
-                'description': "Average of the area under the channel 2 waveform over time",
+                'description': "Average of the area under the channel 2 waveform over time, disregarding positive values.",
                 'label': "Channel 2 Waveform Area Average",
                 'unit': "C/s"
             } ],
@@ -2633,7 +2657,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.SCALAR,
             PyTango.READ],
             {
-                'description': "Average of the area under the channel 3 waveform over time",
+                'description': "Average of the area under the channel 3 waveform over time, disregarding positive values.",
                 'label': "Channel 3 Waveform Area Average",
                 'unit': "C/s"
             } ],
@@ -2642,7 +2666,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             PyTango.SCALAR,
             PyTango.READ],
             {
-                'description': "Average of the area under the channel 4 waveform over time",
+                'description': "Average of the area under the channel 4 waveform over time, disregarding positive values.",
                 'label': "Channel 4 Waveform Area Average",
                 'unit': "C/s"
             } ],
