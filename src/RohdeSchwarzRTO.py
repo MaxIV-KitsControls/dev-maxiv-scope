@@ -2007,15 +2007,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         """ Establish communication  with the instrument.
         """
         #Undoes the setting to standby, ie makes the connection
-        #self.connectInstrument()
+        self.connectInstrument()
 
 #------------------------------------------------------------------
 #    Is On command allowed
 #------------------------------------------------------------------
     def is_On_allowed(self):
         self.debug_stream("In " + self.get_name() + ".is_On_allowed()")
-        if self.get_state() in (PyTango.DevState.STANDBY, PyTango.DevState.RUNNING,
-                                PyTango.DevState.ON):
+        if self.get_state() in [PyTango.DevState.STANDBY]:
             return True
         else:
             return False
