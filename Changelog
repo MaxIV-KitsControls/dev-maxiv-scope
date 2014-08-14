@@ -1,3 +1,7 @@
 12-08-2014 Paul Bell
 	* RT 5407 fix on command to establish contact with instrument if in standby state
         * version 2.3.4
+
+14-08-2014 Johan Forsberg
+	* CT fixes (still remains to compensate for vertical position/offset in the scope)
+	* version 2.3.5
