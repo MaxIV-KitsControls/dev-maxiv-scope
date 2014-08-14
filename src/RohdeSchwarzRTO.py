@@ -265,7 +265,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #print "sam rate is ", self._instrument.GetSampleRate()
         self._recalc_time_scale()
 
-        self._vpositions = {1: None, 2: None, 3: None, 4: None}
+        self._vpositions = {1: 0, 2: 0, 3: 0, 4: 0}
         self._offsets = {1: 0, 2: 0, 3: 0, 4: 0}
 
         #initialise waveforms with required length
@@ -289,7 +289,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def always_executed_hook(self):
 
-        self.debug_stream("In " + self.get_name() + ".always_excuted_hook() with status ", self.get_state())
+        self.debug_stream("In " + self.get_name() + ".always_excuted_hook() with state: %s" % self.get_state())
 
         #if we put it in standby, do nothing
         if self.get_state() in [PyTango.DevState.STANDBY]:
@@ -776,7 +776,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def write_OffsetCh3(self, attr):
         data = attr.get_write_value()
-        self._offset[3] = data
+        self._offsets[3] = data
         self._instrument.setOffset(3,data)
     def is_OffsetCh3_allowed(self, req_type):
         return self._instrument is not None
@@ -786,7 +786,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def write_OffsetCh4(self, attr):
         data = attr.get_write_value()
-        self._offset[4] = data
+        self._offsets[4] = data
         self._instrument.setOffset(4,data)
     def is_OffsetCh4_allowed(self, req_type):
         return self._instrument is not None
@@ -1850,7 +1850,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     def _calculate_area_average(self, ch):
 
-        # Here we calculate the *average charge per second* during the last
+        # Here we calculate the *average charge per acquisition* during the last
         # N seconds. Assume that the voltage is 1:1 with the current of the CT.
 
         # Note: This is too CT specific and should really be done by a
@@ -1861,15 +1861,18 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         waveforms = self._waveforms[ch]  # the latest waveforms
         t1 = time.time()
         t_window = self.WaveformAreaAverageTimeWindow
+        print ch, t1, vscale, vpos, t_window
 
         # sum each waveform in the time window, discarding positive values
+        # Note: for some reason, the vposition still matters to the result,
+        # so for now the position has to be set to 0.
         sums = [numpy.sum(numpy.where(wf < vpos, wf - vpos, 0) * vscale)
                 for t, wf in waveforms
                 if (t1 - t) < t_window]
         if len(sums) > 0:
             avg = (sum(sums)                               # = total current
                    * (self._hrange / self._record_length)  # = total charge
-                   / t_window)                             # = avg charge per s
+                   / len(sums))                            # = avg charge per s
         else:
             avg = None  # no measurements were made
         return avg
