@@ -125,16 +125,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                 self.change_state(PyTango.DevState.ON)
                 return True
 
-    #        def startMonitoring(self):
-    #            #start a thread to check trigger
-    #            print "START MON"
-    #            self.monitorThread.start()
-
-    #        def endMonitoring(self):
-    #            #end thread to check trigger
-    #            print "STOP MON"
-    #            self.monitor.terminate()
-    #            self.monitorThread.join()
 
 #------------------------------------------------------------------
 #    Device constructor
@@ -197,14 +187,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.attr_MeasurementGateStart_write = 0
         self.attr_MeasurementGateStop_write = 0
 
-        #Per channel attributes
-        self.attr_WaveformSumCh1_read = 0
-        #
-        self.attr_WaveformSumCh2_read = 0
-        #
-        self.attr_WaveformSumCh3_read = 0
-        #
-        self.attr_WaveformSumCh4_read = 0
 
         #---- once initialized, begin the process to connect with the instrument
         #PJB push trigger count
@@ -235,10 +217,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
             self._instrument.SetFastReadout()
             self._instrument.SetDisplayOff()  # no display during run single
             self._instrument.SetMultiChannel()  # read out all enabled channels at once
-
-        #pjb xxx monitor thread
-        #self.mymonitor = Monitor()
-        #self.event_thread = Thread(target=self.mymonitor.run,args=(100,self._instrument))
 
         # Stored data needed for generating the time axis scale
         # Get current settings but also insist on reasonably small record length
@@ -393,35 +371,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
 
-#------------------------------------------------------------------
-#    Read WaveformSumCh1 attribute
-#------------------------------------------------------------------
-    def read_WaveformSumCh1(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh1()")
-        #not read from hw here
-        attr.set_value(self.attr_WaveformSumCh1_read)
-
-#------------------------------------------------------------------
-#    Read WaveformSumCh2 attribute
-#------------------------------------------------------------------
-    def read_WaveformSumCh2(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh2()")
-        #not read from hw here
-        attr.set_value(self.attr_WaveformSumCh2_read)
-#------------------------------------------------------------------
-#    Read WaveformSumCh3 attribute
-#------------------------------------------------------------------
-    def read_WaveformSumCh3(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh3()")
-        #not read from hw here
-        attr.set_value(self.attr_WaveformSumCh3_read)
-#------------------------------------------------------------------
-#    Read WaveformSumCh4 attribute
-#------------------------------------------------------------------
-    def read_WaveformSumCh4(self, attr):
-        self.debug_stream("In " + self.get_name() + ".read_WaveformSumCh4()")
-        #not read from hw here
-        attr.set_value(self.attr_WaveformSumCh4_read)
 
 #------------------------------------------------------------------
 #    Read TimeScale attribute
@@ -2216,14 +2165,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Time scale",
                 'unit': "s"
             } ],
-        'WaveformSumCh1':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "WaveformSum channel 1",
-                'label': "Waveform Sum channel 1",
-            } ],
         'WaveformDataCh1':
             [[PyTango.DevFloat,
             PyTango.SPECTRUM,
@@ -2263,14 +2204,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'WaveformSumCh2':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "WaveformSum channel 2",
-                'label': "Waveform Sum channel 2",
-            } ],
         'WaveformDataCh2':
             [[PyTango.DevFloat,
             PyTango.SPECTRUM,
@@ -2309,14 +2242,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'unit': "V",
                 'format': "%4.3f"
             } ],
-        'WaveformSumCh3':
-            [[PyTango.DevFloat,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "WaveformSum channel 3",
-                'label': "Waveform Sum channel 3",
-            } ],
         'WaveformDataCh3':
             [[PyTango.DevFloat,
             PyTango.SPECTRUM,
@@ -2354,14 +2279,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'label': "Vertical range channel 4",
                 'unit': "V",
                 'format': "%4.3f"
-            } ],
-        'WaveformSumCh4':
-            [[PyTango.DevFloat,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "WaveformSum channel 4",
-                'label': "Waveform Sum channel 4",
             } ],
         'WaveformDataCh4':
             [[PyTango.DevFloat,
