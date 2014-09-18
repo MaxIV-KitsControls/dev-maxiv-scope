@@ -9,3 +9,8 @@
 18-08-2014 Paul Bell
 	* version 2.3.6
 	* just some clean up of unused attributes
+
+
+18-08-2014 Paul Bell
+	* version 2.4.0
+	* remove waveform average area calculation, adjustment to what event data is pushed

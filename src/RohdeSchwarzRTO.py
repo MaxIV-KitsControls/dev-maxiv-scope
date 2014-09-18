@@ -69,14 +69,12 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
                 t = time.time()
                 for i, wf in waveforms.items():
-                    # scale to scope display divisions, that is +/-5.
+                    # for the attribute, scale to scope display divisions, that is +/-5.
                     swf = (wf / 127.) * 5
                     self._waveform_data[i] = swf
                     wf_name = "WaveformDataCh%d" % i
-                    self.push_change_event(wf_name, swf)
-                    # Buffer waveforms for average area calculation
-                    if self._active_channels[i]:
-                        self._waveforms[i].append((t, waveforms[i]))
+                    # push events for client (note not scaled)
+                    self.push_change_event(wf_name, wf)
 
                 # If the waveform lengths have changed, the timescale needs
                 # recalculating.
@@ -249,14 +247,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
-        # Note: the number of points may need to be adjusted if the time window
-        # is large and the trigger frequency high. 1000 should cover 10s at 100Hz.
-        self._waveforms = {
-            1: deque(maxlen=1000),
-            2: deque(maxlen=1000),
-            3: deque(maxlen=1000),
-            4: deque(maxlen=1000)
-        }
 
     def _recalc_time_scale(self):
         self._time_scale = numpy.linspace(-self._hrange/2, self._hrange/2, self._record_length)
@@ -1797,74 +1787,6 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         else:
             return False
 
-    def _calculate_area_average(self, ch):
-
-        # Here we calculate the *average charge per acquisition* during the last
-        # N seconds. Assume that the voltage is 1:1 with the current of the CT.
-
-        # Note: This is too CT specific and should really be done by a
-        # separate device.
-
-        vscale = self._vranges[ch] / 256
-        vpos = self._vpositions[ch]
-        waveforms = self._waveforms[ch]  # the latest waveforms
-        t1 = time.time()
-        t_window = self.WaveformAreaAverageTimeWindow
-        print ch, t1, vscale, vpos, t_window
-
-        # sum each waveform in the time window, discarding positive values
-        # Note: for some reason, the vposition still matters to the result,
-        # so for now the position has to be set to 0.
-        sums = [numpy.sum(numpy.where(wf < vpos, wf - vpos, 0) * vscale)
-                for t, wf in waveforms
-                if (t1 - t) < t_window]
-        if len(sums) > 0:
-            avg = (sum(sums)                               # = total current
-                   * (self._hrange / self._record_length)  # = total charge
-                   / len(sums))                            # = avg charge per s
-        else:
-            avg = None  # no measurements were made
-        return avg
-
-    def read_WaveformAreaAverageChannel1(self, attr):
-        avg = self._calculate_area_average(1)
-        if avg is None:
-            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
-        else:
-            attr.set_value(avg)
-
-    def is_WaveformAreaAverageChannel1_allowed(self, req_type):
-        return self.get_state() == PyTango.DevState.RUNNING
-
-    def read_WaveformAreaAverageChannel2(self, attr):
-        avg = self._calculate_area_average(2)
-        if avg is None:
-            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
-        else:
-            attr.set_value(avg)
-
-    def is_WaveformAreaAverageChannel2_allowed(self, req_type):
-        return self.get_state() == PyTango.DevState.RUNNING
-
-    def read_WaveformAreaAverageChannel3(self, attr):
-        avg = self._calculate_area_average(3)
-        if avg is None:
-            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
-        else:
-            attr.set_value(avg)
-
-    def is_WaveformAreaAverageChannel3_allowed(self, req_type):
-        return self.get_state() == PyTango.DevState.RUNNING
-
-    def read_WaveformAreaAverageChannel4(self, attr):
-        avg = self._calculate_area_average(4)
-        if avg is None:
-            attr.set_quality(PyTango.AttrQuality.ATTR_INVALID)
-        else:
-            attr.set_value(avg)
-
-    def is_WaveformAreaAverageChannel4_allowed(self, req_type):
-        return self.get_state() == PyTango.DevState.RUNNING
 
 #------------------------------------------------------------------
 #    Read Attribute Hardware
@@ -1989,11 +1911,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
             [PyTango.DevString,
              "The name of the instrument to use",
              [] ],
-        'WaveformAreaAverageTimeWindow':
-            [PyTango.DevFloat,
-             "The number of seconds to average over.",
-             [5.0]
-         ]
     }
 
     #    Command definitions
@@ -2554,43 +2471,6 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
                 'description': "Coupling channel 4",
                 'label': "Coupling channel 4",
                 } ],
-        'WaveformAreaAverageChannel1':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "Average of the area under the channel 1 waveform over time, disregarding positive values.",
-                'label': "Channel 1 Waveform Area Average",
-                'unit': "C/s"
-            } ],
-        'WaveformAreaAverageChannel2':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "Average of the area under the channel 2 waveform over time, disregarding positive values.",
-                'label': "Channel 2 Waveform Area Average",
-                'unit': "C/s"
-            } ],
-        'WaveformAreaAverageChannel3':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "Average of the area under the channel 3 waveform over time, disregarding positive values.",
-                'label': "Channel 3 Waveform Area Average",
-                'unit': "C/s"
-            } ],
-        'WaveformAreaAverageChannel4':
-            [[PyTango.DevDouble,
-            PyTango.SCALAR,
-            PyTango.READ],
-            {
-                'description': "Average of the area under the channel 4 waveform over time, disregarding positive values.",
-                'label': "Channel 4 Waveform Area Average",
-                'unit': "C/s"
-            } ],
-
         'VScaleCh1':
             [[PyTango.DevDouble,
             PyTango.SCALAR,
