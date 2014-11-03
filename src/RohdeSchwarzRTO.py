@@ -201,20 +201,18 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #fix for site: don't assume anything!
         #self._instrument.setTriggerSource(1, "EXT")
 
-        #switch to binary readout mode
-        self._instrument.SetBinaryReadout()
-
         #check which channels are on
         self._active_channels = {}
         self._instrument.updateChanStates(self._active_channels)
         print "active channels",  self._active_channels
 
+        #switch to binary readout mode
+        self._instrument.SetBinaryReadout()
         #faster readout (only available in firmware v2)
         print "firmware version: ",  self._instrument.firmware_version
-        if self._instrument.firmware_version >= (2,):
-            self._instrument.SetFastReadout()
-            self._instrument.SetDisplayOff()  # no display during run single
-            self._instrument.SetMultiChannel()  # read out all enabled channels at once
+        self._instrument.SetFastReadout()
+        self._instrument.SetMultiChannel()  # read out all enabled channels at once
+        self._instrument.SetDisplayOn()  # turn display on at init (will be off during acquisition)
 
         # Stored data needed for generating the time axis scale
         # Get current settings but also insist on reasonably small record length
@@ -1810,7 +1808,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Start(self):
         self.debug_stream("In " + self.get_name() +  ".Start()")
         self.change_state(PyTango.DevState.RUNNING)
-        print self._instrument.firmware_version
+        self._instrument.SetDisplayOff()  # no display 
 
         # Start acquiring waveforms
         self.acq_thread = Thread(target=self._acquisition_loop)
@@ -1831,6 +1829,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Stop(self):
         self.debug_stream("In " + self.get_name() +  ".Stop()")
         self.change_state(PyTango.DevState.ON)
+        self._instrument.SetDisplayOn()  # turn display back on 
 
         # Stop the waveform acquisition
         self._acquiring.clear()

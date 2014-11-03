@@ -1,0 +1,2 @@
+PJB Nov 2014
+In running state, the device polls the scope for new data by looking for an incremenent in the AcquireAvailable counter. This must be reset periodically, by stopping and starting the acquisition. Also, triggers may be missed using this method. It works OK up to around 15Hz, 10Hz should be considered the maximum.
