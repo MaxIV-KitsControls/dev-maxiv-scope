@@ -49,14 +49,14 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     def _acquisition_loop(self):
 
+        #self._acquiring.set()
+
         """The 'inner' loop that reads the channel waveforms"""
 
-        self._acquiring.set()
-
         #self._instrument.setTriggerMode("NORM")  # assume nothing?
-        self._instrument.write("RUNC")
-
+        #
         while self._acquiring.isSet() and self.get_state() == PyTango.DevState.RUNNING:
+
             try:
                 if not any(self._active_channels.values()):
                     print "no channels active!"
@@ -74,6 +74,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                     self._waveform_data[i] = swf
                     wf_name = "WaveformDataCh%d" % i
                     # push events for client (note not scaled)
+                    #print "push event", i, wf[0:10]
                     self.push_change_event(wf_name, wf)
 
                 # If the waveform lengths have changed, the timescale needs
@@ -145,6 +146,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #    Device destructor
 #------------------------------------------------------------------
     def delete_device(self):
+        time.sleep(0.4)
         self.Standby()
         self.debug_stream("In " + self.get_name() + ".delete_device()")
 
@@ -212,7 +214,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         print "firmware version: ",  self._instrument.firmware_version
         self._instrument.SetFastReadout()
         self._instrument.SetMultiChannel()  # read out all enabled channels at once
-        self._instrument.SetDisplayOn()  # turn display on at init (will be off during acquisition)
+        #self._instrument.SetDisplayOn()  # turn display on at init (will be off during acquisition)
 
         # Stored data needed for generating the time axis scale
         # Get current settings but also insist on reasonably small record length
@@ -245,6 +247,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
 
+        self.acq_thread = None
 
     def _recalc_time_scale(self):
         self._time_scale = numpy.linspace(-self._hrange/2, self._hrange/2, self._record_length)
@@ -1804,15 +1807,22 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
 #    Start command:
 #------------------------------------------------------------------
-    @PyTango.DebugIt()
+#    @PyTango.DebugIt()
     def Start(self):
         self.debug_stream("In " + self.get_name() +  ".Start()")
         self.change_state(PyTango.DevState.RUNNING)
-        self._instrument.SetDisplayOff()  # no display 
+        #self._instrument.SetDisplayOff()  # no display 
 
         # Start acquiring waveforms
-        self.acq_thread = Thread(target=self._acquisition_loop)
-        self.acq_thread.start()
+        self._instrument.write("RUNC")
+        time.sleep(0.2)
+        self._acquiring.set()
+        
+        if self.acq_thread is None:
+            self.acq_thread = Thread(target=self._acquisition_loop)
+            self.acq_thread.daemon=True
+            self.acq_thread.start()
+
 
 #------------------------------------------------------------------
 #    Is Start command allowed
@@ -1829,10 +1839,13 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
     def Stop(self):
         self.debug_stream("In " + self.get_name() +  ".Stop()")
         self.change_state(PyTango.DevState.ON)
-        self._instrument.SetDisplayOn()  # turn display back on 
+        #self._instrument.SetDisplayOn()  # turn display back on 
 
         # Stop the waveform acquisition
         self._acquiring.clear()
+        self._instrument.StopAcq()
+        #self.acq_thread.join()
+
 
 #------------------------------------------------------------------
 #    Is Stop command allowed
@@ -1854,8 +1867,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         if(self._instrument is not None):
             try:
                 self._acquiring.clear()  # stop acquiring waveforms
+                time.sleep(0.1)
                 self.change_state(PyTango.DevState.STANDBY)
                 self._instrument.GoLocal()
+                time.sleep(0.1)
                 self._instrument.close()
                 self._instrument = None
                 self.set_status("No connection to instrument (standby)")
