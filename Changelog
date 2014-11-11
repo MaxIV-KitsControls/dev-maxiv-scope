@@ -24,3 +24,7 @@
 	* display not turned off when acquiring, for convenience below 100Hz
 	* fix thread so that multiple threads not started!
 
+11-11-2014 Paul Bell			
+	* version 2.4.3
+	* more fixes to thread, so that multiple threads not created on Init
+

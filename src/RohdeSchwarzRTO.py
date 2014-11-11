@@ -20,7 +20,7 @@ __docformat__ = 'restructuredtext'
 from collections import deque
 import socket
 import sys
-from threading import Thread, Event
+from threading import Thread
 import time
 import traceback
 
@@ -45,18 +45,19 @@ from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
     _instrument = None
-    _acquiring = Event()
 
     def _acquisition_loop(self):
 
-        #self._acquiring.set()
 
         """The 'inner' loop that reads the channel waveforms"""
 
         #self._instrument.setTriggerMode("NORM")  # assume nothing?
-        #
-        while self._acquiring.isSet() and self.get_state() == PyTango.DevState.RUNNING:
+        #note that if not running will not be blocked by isSet!
 
+        self.is_alive = True
+
+        while self.is_alive:
+            
             try:
                 if not any(self._active_channels.values()):
                     print "no channels active!"
@@ -74,8 +75,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                     self._waveform_data[i] = swf
                     wf_name = "WaveformDataCh%d" % i
                     # push events for client (note not scaled)
-                    #print "push event", i, wf[0:10]
-                    self.push_change_event(wf_name, wf)
+                    #print "push event", i, wf[0:10], self.is_alive
+                    #is_alive can become false by the time we get here? Get error if so.
+                    if self.is_alive:
+                        self.push_change_event(wf_name, wf)
 
                 # If the waveform lengths have changed, the timescale needs
                 # recalculating.
@@ -89,6 +92,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
                 # Catching all exceptions since we can't have the thread dying on us
                 # Kind of dangerous since it may also hide bugs...
                 self.error_stream("Error acquiring waveform data: %s" % str(e))
+
+        #set to None on exit!
+        print "Thread ending!"
+
 
     def change_state(self,newstate):
         self.debug_stream("In %s.change_state(%s)"%(self.get_name(),str(newstate)))
@@ -133,7 +140,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.debug_stream("In " + self.get_name() + ".__init__()")
         #self.set_change_event('SpecialWaveform', True)
         RohdeSchwarzRTO.init_device(self)
-        time.sleep(1.0)
+        time.sleep(0.5)
 
         self.set_change_event('WaveformDataCh1', True, False)
         self.set_change_event('WaveformDataCh2', True, False)
@@ -142,11 +149,12 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         self.set_change_event('TimeScale', True, False)
         self.set_change_event('State', True, False)
 
+        self.is_alive = False
+
 #------------------------------------------------------------------
 #    Device destructor
 #------------------------------------------------------------------
     def delete_device(self):
-        time.sleep(0.4)
         self.Standby()
         self.debug_stream("In " + self.get_name() + ".delete_device()")
 
@@ -155,6 +163,7 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 #------------------------------------------------------------------
     def init_device(self):
         self.debug_stream("In " + self.get_name() + ".init_device()")
+        time.sleep(0.2)
 
         #put in intialise state
         self.change_state(PyTango.DevState.INIT)
@@ -246,8 +255,8 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
 
         #initialise waveforms with required length
         self._waveform_data = dict((n, numpy.zeros(self._record_length)) for n in xrange(1, 5))
-
         self.acq_thread = None
+        
 
     def _recalc_time_scale(self):
         self._time_scale = numpy.linspace(-self._hrange/2, self._hrange/2, self._record_length)
@@ -1816,11 +1825,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         # Start acquiring waveforms
         self._instrument.write("RUNC")
         time.sleep(0.2)
-        self._acquiring.set()
-        
+
         if self.acq_thread is None:
             self.acq_thread = Thread(target=self._acquisition_loop)
-            self.acq_thread.daemon=True
+            #self.acq_thread.daemon=True
             self.acq_thread.start()
 
 
@@ -1842,9 +1850,10 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         #self._instrument.SetDisplayOn()  # turn display back on 
 
         # Stop the waveform acquisition
-        self._acquiring.clear()
+        self.is_alive = False
+        self.acq_thread.join()
+        self.acq_thread = None
         self._instrument.StopAcq()
-        #self.acq_thread.join()
 
 
 #------------------------------------------------------------------
@@ -1864,10 +1873,15 @@ class RohdeSchwarzRTO(PyTango.Device_4Impl):
         """ Release the communication with the instrument.
         """
         self.debug_stream("In " + self.get_name() +  ".Standby()")
+
+        self.is_alive = False
+        if self.acq_thread:
+            self.acq_thread.join()
+            self.acq_thread = None
+
         if(self._instrument is not None):
             try:
-                self._acquiring.clear()  # stop acquiring waveforms
-                time.sleep(0.1)
+                self._instrument.StopAcq()
                 self.change_state(PyTango.DevState.STANDBY)
                 self._instrument.GoLocal()
                 time.sleep(0.1)
@@ -2536,6 +2550,7 @@ class RohdeSchwarzRTOClass(PyTango.DeviceClass):
     def __init__(self, name):
         PyTango.DeviceClass.__init__(self, name)
         self.set_type(name);
+
 
 #==================================================================
 #
