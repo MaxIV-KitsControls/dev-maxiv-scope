@@ -1,0 +1,3 @@
+#!/usr/bin/python
+from scope import run_rto
+run_rto()
