@@ -4,12 +4,13 @@
 import numpy
 import socket
 from threading import Thread
+from functools import partial
 from timeit import default_timer as time
 from collections import deque, defaultdict
 
 # PyTango imports
 import PyTango
-from PyTango import DevState, AttrWriteType
+from PyTango import DevState
 from PyTango.server import command, attribute, Device
 debug_it = PyTango.DebugIt(True, True, True)
 
@@ -20,6 +21,7 @@ from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 
 # Common imports
 from scope.common import DeviceMeta, StopIO
+from scope.common import read_attribute, rw_attribute
 from scope.common import tick_context, safe_method, safe_traceback
 
 
@@ -103,11 +105,11 @@ class Scope(Device):
         # Waveforms
         self._waveform_data = self._instrument.acquire()
         # Push events
-        self._update_time_scale()
+        self._update_time_base()
         self._push_channel_events()
 
-    def _update_time_scale(self):
-        """Compute a new time scale if necessary."""
+    def _update_time_base(self):
+        """Compute a new time base if necessary."""
         # Get args
         gen = (len(data) for data in self._waveform_data.values() if len(data))
         length = next(gen, 0)
@@ -117,7 +119,7 @@ class Scope(Device):
         # Update value
         if self._linspace_args != args:
             self._time_scale = numpy.linspace(*args)
-            self._push_time_scale_event()
+            self._push_time_base_event()
         # Update args attribute
         self._linspace_args = args
 
@@ -239,21 +241,21 @@ class Scope(Device):
                 data = self._waveform_data[channel]
                 self.push_change_event(name, data)
 
-    def _push_time_scale_event(self):
-        """Push the TANGO change event for the time scale."""
+    def _push_time_base_event(self):
+        """Push the TANGO change event for the time base."""
         if self.events:
-            self.push_change_event("TimeScale", self._time_scale)
+            self.push_change_event("TimeBase", self._time_scale)
 
     def _setup_events(self):
         """Setup events for waveforms and timescale."""
         if self.events:
             for name in self.waveform_names.values():
                 self.set_change_event(name, True, False)
-            self.set_change_event("TimeScale", True, False)
+            self.set_change_event("TimeBase", True, False)
 
-#------------------------------------------------------------------
+# ------------------------------------------------------------------
 #    Update methods
-#------------------------------------------------------------------
+# ------------------------------------------------------------------
 
     def always_executed_hook(self):
         """Update state and status."""
@@ -377,86 +379,331 @@ class Scope(Device):
 
     # Identifier
 
-    Identifier = attribute(
+    Identifier = read_attribute(
         dtype=str,
         doc="Instrument identification",
     )
 
-    def read_Identifier(self, attr):
-        attr.set_value(self._idn)
+    def read_Identifier(self):
+        return self._identifier
 
-    def is_Identifier_allowed(self, req_type):
+    def is_read_allowed(self, request=None):
         return self.get_state() not in [DevState.INIT, DevState.FAULT]
+
+    def is_write_allowed(self, request=None):
+        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+
+    def is_read_write_allowed(self, request):
+        if request.READ_REQ:
+            return self.is_read_allowed()
+        return self.is_write_allowed()
 
 # ------------------------------------------------------------------
 #    Time attributes
 # ------------------------------------------------------------------
 
-    # TimeRange
+    # Time Range
 
-    TimeRange = attribute(
+    TimeRange = rw_attribute(
         dtype=float,
-        access=AttrWriteType.READ_WRITE,
         label="Time range",
         unit="s",
         min_value=1e-8,
         max_value=1.0,
         format="%.1e",
-        memorized=True,
-        doc="Horizontal time range"
+        doc="Horizontal time range",
     )
 
-    def read_TimeRange(self, attr):
-        attr.set_value(self._hrange)
+    def read_TimeRange(self):
+        return self._time_range
 
-    @debug_it
-    def write_TimeRange(self, attr):
-        data = attr.get_write_value()
-        self._enqueue(self._instrument.setHRange, data)
+    def write_TimeRange(self, time_range):
+        self._enqueue(self._instrument.set_time_range, time_range)
 
-    def is_TimeRange_allowed(self, req_type):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+    # Time Position
 
-    # TimePosition
-
-    TimePosition = attribute(
+    TimePosition = rw_attribute(
         dtype=float,
-        access=AttrWriteType.READ_WRITE,
         label="Time position",
         unit="s",
         min_value=-1.0,
         max_value=1.0,
         format="%.1e",
-        memorized=True,
-        doc="Horizontal time position"
+        doc="Horizontal time position",
     )
 
-    def read_TimePosition(self, attr):
-        attr.set_value(self._hposition)
+    def read_TimePosition(self):
+        return self._time_position
 
-    @debug_it
-    def write_TimePosition(self, attr):
-        data = attr.get_write_value()
-        self._enqueue(self._instrument.setHPosition, data)
+    def write_TimePosition(self, position):
+        self._enqueue(self._instrument.set_time_position, position)
 
-    def is_TimePosition_allowed(self, req_type):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+    # Time Base
 
-    # TimeScale
-
-    TimeScale = attribute(
+    TimeBase = read_attribute(
         dtype=(float,),
         max_dim_x=10000,
-        label="Time scale",
+        label="Time base",
         unit="s",
-        doc="Time scale value table"
+        doc="Time base value table",
     )
 
-    def read_TimeScale(self, attr):
-        attr.set_value(self._time_scale)
+    def read_TimeBase(self):
+        return self._time_base
 
-    def is_TimeScale_allowed(self, req_type):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+# ------------------------------------------------------------------
+#    Channel settings
+# ------------------------------------------------------------------
+
+    # Channel Enabled
+
+    enabled_attribute = lambda channel: rw_attribute(
+        dtype=bool,
+        label="Channel enabled {0}".format(channel),
+        doc="Channel {0} status (enabled or disabled)".format(channel),
+    )
+
+    def read_enabled(self, channel):
+        return self._enabled[channel]
+
+    def write_enabled(self, enabled, channel):
+        self._enqueue(self._instrument.set_channel_enabled, channel, enabled)
+
+    ChannelEnabled1 = enabled_attribute(1)
+    read_ChannelEnabled1 = partial(read_enabled, channel=1)
+    write_ChannelEnabled1 = partial(write_enabled, channel=1)
+
+    ChannelEnabled2 = enabled_attribute(2)
+    read_ChannelEnabled2 = partial(read_enabled, channel=2)
+    write_ChannelEnabled2 = partial(write_enabled, channel=2)
+
+    ChannelEnabled3 = enabled_attribute(3)
+    read_ChannelEnabled3 = partial(read_enabled, channel=3)
+    write_ChannelEnabled3 = partial(write_enabled, channel=3)
+
+    ChannelEnabled4 = enabled_attribute(4)
+    read_ChannelEnabled4 = partial(read_enabled, channel=4)
+    write_ChannelEnabled4 = partial(write_enabled, channel=4)
+
+    # Channel Coupling
+
+    coupling_attribute = lambda channel: rw_attribute(
+        dtype=str,
+        label="Channel coupling {0}".format(channel),
+        doc="Coupling for channel {0}".format(channel),
+    )
+
+    def read_coupling(self, channel):
+        return self._coupling[channel]
+
+    def write_coupling(self, coupling, channel):
+        self._enqueue(self._instrument.set_channel_coupling, channel, coupling)
+
+    ChannelCoupling1 = coupling_attribute(1)
+    read_ChannelCoupling1 = partial(read_coupling, channel=1)
+    write_ChannelCoupling1 = partial(write_coupling, channel=1)
+
+    ChannelCoupling2 = coupling_attribute(2)
+    read_ChannelCoupling2 = partial(read_coupling, channel=2)
+    write_ChannelCoupling2 = partial(write_coupling, channel=2)
+
+    ChannelCoupling3 = coupling_attribute(3)
+    read_ChannelCoupling3 = partial(read_coupling, channel=3)
+    write_ChannelCoupling3 = partial(write_coupling, channel=3)
+
+    ChannelCoupling4 = coupling_attribute(4)
+    read_ChannelCoupling4 = partial(read_coupling, channel=4)
+    write_ChannelCoupling4 = partial(write_coupling, channel=4)
+
+    # Channel Position
+
+    position_attribute = lambda channel: rw_attribute(
+        dtype=float,
+        unit="V",
+        format="%4.3f",
+        label="Channel position {0}".format(channel),
+        doc="Position for channel {0}".format(channel),
+    )
+
+    def read_position(self, channel):
+        return self._position[channel]
+
+    def write_position(self, position, channel):
+        self._enqueue(self._instrument.set_channel_position, channel, position)
+
+    ChannelPosition1 = position_attribute(1)
+    read_ChannelPosition1 = partial(read_position, channel=1)
+    write_ChannelPosition1 = partial(write_position, channel=1)
+
+    ChannelPosition2 = position_attribute(2)
+    read_ChannelPosition2 = partial(read_position, channel=2)
+    write_ChannelPosition2 = partial(write_position, channel=2)
+
+    ChannelPosition3 = position_attribute(3)
+    read_ChannelPosition3 = partial(read_position, channel=3)
+    write_ChannelPosition3 = partial(write_position, channel=3)
+
+    ChannelPosition4 = position_attribute(4)
+    read_ChannelPosition4 = partial(read_position, channel=4)
+    write_ChannelPosition4 = partial(write_position, channel=4)
+
+    # Channel Scale
+
+    scale_attribute = lambda channel: rw_attribute(
+        dtype=float,
+        unit="V/div",
+        format="%4.3f",
+        label="Channel scale {0}".format(channel),
+        doc="Scale for channel {0}".format(channel),
+    )
+
+    def read_scale(self, channel):
+        return self._scale[channel]
+
+    def write_scale(self, scale, channel):
+        self._enqueue(self._instrument.set_channel_scale, channel, scale)
+
+    ChannelScale1 = scale_attribute(1)
+    read_ChannelScale1 = partial(read_scale, channel=1)
+    write_ChannelScale1 = partial(write_scale, channel=1)
+
+    ChannelScale2 = scale_attribute(2)
+    read_ChannelScale2 = partial(read_scale, channel=2)
+    write_ChannelScale2 = partial(write_scale, channel=2)
+
+    ChannelScale3 = scale_attribute(3)
+    read_ChannelScale3 = partial(read_scale, channel=3)
+    write_ChannelScale3 = partial(write_scale, channel=3)
+
+    ChannelScale4 = scale_attribute(4)
+    read_ChannelScale4 = partial(read_scale, channel=4)
+    write_ChannelScale4 = partial(write_scale, channel=4)
+
+# ------------------------------------------------------------------
+#    Waveforms
+# ------------------------------------------------------------------
+
+    # Waveforms
+
+    waveform_attribute = lambda channel: read_attribute(
+        dtype=(float),
+        unit="V",
+        format="%4.3f",
+        max_dim_x=10000,
+        label="Waveform {0}".format(channel),
+        doc="Waveform data for channel {0}".format(channel),
+    )
+
+    def read_waveform(self, channel):
+        return self._waveform[channel]
+
+    Waveform1 = waveform_attribute(1)
+    read_Waveform1 = partial(read_waveform, channel=1)
+
+    Waveform2 = waveform_attribute(2)
+    read_Waveform2 = partial(read_waveform, channel=2)
+
+    Waveform3 = waveform_attribute(3)
+    read_Waveform3 = partial(read_waveform, channel=3)
+
+    Waveform4 = waveform_attribute(4)
+    read_Waveform4 = partial(read_waveform, channel=4)
+
+    # Raw waveforms
+
+    raw_waveform_attribute = lambda channel: read_attribute(
+        dtype=(float),
+        unit="div",
+        format="%4.3f",
+        max_dim_x=10000,
+        label="Waveform {0}".format(channel),
+        doc="Waveform data for channel {0}".format(channel),
+    )
+
+    def read_raw_waveform(self, channel):
+        return self._raw_waveform[channel]
+
+    RawWaveform1 = raw_waveform_attribute(1)
+    read_RawWaveform1 = partial(read_raw_waveform, channel=1)
+
+    RawWaveform2 = raw_waveform_attribute(2)
+    read_RawWaveform2 = partial(read_raw_waveform, channel=2)
+
+    RawWaveform3 = raw_waveform_attribute(3)
+    read_RawWaveform3 = partial(read_raw_waveform, channel=3)
+
+    RawWaveform4 = raw_waveform_attribute(4)
+    read_RawWaveform4 = partial(read_raw_waveform, channel=4)
+
+# ------------------------------------------------------------------
+#    Trigger related attributes
+# ------------------------------------------------------------------
+
+    # Trigger levels
+
+    level_attribute = lambda channel: rw_attribute(
+        dtype=float,
+        unit="V",
+        format="%4.3f",
+        label="Trigger level {0}".format(channel),
+        doc="Position for channel {0}".format(channel),
+    )
+
+    def read_level(self, channel):
+        return self._level[channel]
+
+    def write_level(self, level, channel):
+        self._enqueue(self._instrument.set_trigger_level, channel, level)
+
+    TriggerLevel1 = level_attribute(1)
+    read_TriggerLevel1 = partial(read_level, channel=1)
+    write_TriggerLevel1 = partial(write_level, channel=1)
+
+    TriggerLevel2 = level_attribute(2)
+    read_TriggerLevel2 = partial(read_level, channel=2)
+    write_TriggerLevel2 = partial(write_level, channel=2)
+
+    TriggerLevel3 = level_attribute(3)
+    read_TriggerLevel3 = partial(read_level, channel=3)
+    write_TriggerLevel3 = partial(write_level, channel=3)
+
+    TriggerLevel4 = level_attribute(4)
+    read_TriggerLevel4 = partial(read_level, channel=4)
+    write_TriggerLevel4 = partial(write_level, channel=4)
+
+    # Trigger slope
+
+    TriggerSlope = rw_attribute(
+        dtype=int,
+        min_value=0,
+        max_value=2,
+        format="%1d",
+        label="Trigger slope",
+        doc="0 for negative, 1 for positive, 2 for either",
+    )
+
+    def read_TriggerSlope(self):
+        return self._slope
+
+    def write_TriggerSlope(self, slope):
+        self._enqueue(self._instrument.set_trigger_slope, slope)
+
+    # Trigger source
+
+    TriggerSource = rw_attribute(
+        dtype=int,
+        min_value=1,
+        max_value=5,
+        format="%1d",
+        label="Trigger source",
+        doc="Channel 1 to 4, or 5 for external trigger",
+    )
+
+    def read_TriggerSource(self):
+        return self._source
+
+    def write_TriggerSource(self, source):
+        self._enqueue(self._instrument.set_trigger_source, source)
 
 # ------------------------------------------------------------------
 #    Commands
@@ -491,7 +738,13 @@ class Scope(Device):
 
     # Execute command
 
-    @command
+    @command(
+        dtype_in=(str,),
+        doc_in="Execute aribtrary command",
+        dtype_out=(str,),
+        doc_out="Returns the reply if a query,"
+        "else DONE if suceeds, else TIMEOUT"
+    )
     def Execute(self, argin):
         # Check report queue
         if self._report_queue:

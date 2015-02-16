@@ -4,9 +4,10 @@
 import PyTango
 import traceback
 from time import sleep
-from functools import wraps
+from functools import wraps, partial
 from contextlib import contextmanager
 from timeit import default_timer as time
+from PyTango import DevState, AttrWriteType
 
 
 # DeviceMeta metaclass
@@ -73,3 +74,18 @@ def safe_method(handler_name):
 class StopIO(Exception):
     """Exception raised to stop the current IO operation."""
     pass
+
+
+# RW attribute
+rw_attribute = partial(
+    PyTango.server.attribute,
+    access=PyTango.AttrWriteType.READ_WRITE,
+    fisallowed="is_read_write_allowed",
+    memorized=True,
+)
+
+# Read attribute
+read_attribute = partial(
+    PyTango.server.attribute,
+    fisallowed="is_read_allowed",
+)
