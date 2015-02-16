@@ -3,6 +3,7 @@
 # Imports
 import numpy
 import socket
+import operator
 from threading import Thread
 from functools import partial
 from timeit import default_timer as time
@@ -22,7 +23,7 @@ from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 # Common imports
 from scope.common import DeviceMeta, StopIO
 from scope.common import read_attribute, rw_attribute
-from scope.common import tick_context, safe_method, safe_traceback
+from scope.common import tick_context, safe_loop, safe_traceback
 
 
 # Generic scope device
@@ -32,6 +33,7 @@ class Scope(Device):
 
     # Attributes
     channels = range(1, 5)
+    time_base_name = "TimeBase"
     waveform_names = dict((i, "Waveform" + str(i)) for i in channels)
     raw_waveform_names = dict((i, "RawWaveform" + str(i)) for i in channels)
 
@@ -52,24 +54,31 @@ class Scope(Device):
 # ------------------------------------------------------------------
 
     @debug_it
-    @safe_method("register_exception")
+    @safe_loop("register_exception")
     def scope_loop(self):
         """The target for the thread to access the instrument."""
-        # Main loop
-        while self.alive:
-            # Catch all exceptions
-            try:
-                # Time control
-                with tick_context(self.minimal_period):
-                    # Instrument access
-                    self.check_connection()
-                    self.update_values()
-                    self.process_queue()
+        # Wait to be awaken
+        self.awake.wait()
+        # Not alive
+        if not self.alive:
+            self.close_connection()
+            # Break the loop
+            return True
+        # Catch all exceptions
+        try:
+            # Connect to the scope
+            self.check_connection()
+            # Acquire waveforms
+            if self.get_state() == DevState.RUNNING:
+                self.acquire_waveforms()
+            # Update values
+            elif self.get_state() == DevState.ON:
+                self.update_all()
+            # Process queue
+            self.process_queue()
             # Handle exception
-            except Exception as exc:
-                self.handle_exception(exc)
-        # Close the connection
-        self.close_connection()
+        except Exception as exc:
+            self.handle_exception(exc)
 
     def check_connection(self):
         """Try to connect to the instrument if not connected."""
@@ -77,30 +86,38 @@ class Scope(Device):
         if not self.connected:
             # Try to connect
             self.scope.connect()
-            self.idn = self.scope.getIDN()
+            self.update_identifier()
             # Configure the scope
-            self.scope.setBinaryReadout()
+            self.scope.write('*CLS')
+            self.scope.set_binary_readout()
         # Status
         self.update_scope_status()
 
+    def update_all(self):
+        """Update all values."""
+        self.update_single_settings()
+        for channel in self.channels:
+            self.update_channel_settings(channel)
+        self.update_waveforms()
+
     def update_single_settings(self):
-        """Get data and waveforms from the instrument."""
-        self.scope.write('*CLS')
-        self.time_range = self.scope.get_time_range()
-        self.time_position = self.scope.get_time_position()
-        self.trigger_source = self.scope.get_trigger_source()
-        self.trigger_slope = self.scope.get_trigger_slope()
-        self.trigger_levels[5] = self.scope.get_trigger_level(5)
+        """Update all the non-channel related settings."""
+        self.update_time_range()
+        self.update_time_position()
+        self.update_trigger_source()
+        self.update_trigger_slope()
+        self.update_trigger_level(5)
 
     def update_channel_settings(self, channel):
-        scope = self.scope
-        self.channel_positions[channel] = scope.get_channel_position(channel)
-        self.channel_scales[channel] = scope.get_channel_scale(channel)
-        self.channel_coupling[channel] = scope.get_channel_coupling(channel)
-        self.trigger_levels[channel] = scope.get_trigger_level(channel)
-        self.channel_enabled[channel] = scope.get_channel_enabled(channel)
+        """Update the setting for a given channel."""
+        self.update_channel_position(channel)
+        self.update_channel_scale(channel)
+        self.update_channel_coupling(channel)
+        self.update_trigger_level(channel)
+        self.update_channel_enabled(channel)
 
     def update_waveforms(self):
+        """Update the waveforms."""
         result = self.scope.get_waveforms(both=True)
         self.waveforms, self.raw_waveforms = result
         self.update_time_base()
@@ -108,13 +125,14 @@ class Scope(Device):
 
     def update_time_base(self):
         """Compute a new time base if necessary."""
-        # Get args
-        gen = (len(data) for data in self.waveform_data.values() if len(data))
+        # Get length
+        gen = (len(data) for data in self.waveforms.values() if len(data))
         length = next(gen, 0)
-        start = self.hposition - self.hrange / 2
-        stop = self.hposition + self.hrange / 2
-        args = (start, stop, length)
+        # Get boundaries
+        mean, half = self.time_position, self.time_range/2
+        start, stop = (op(mean, half) for op in (operator.sub, operator.add))
         # Update value
+        args = (start, stop, length)
         if self.linspace_args != args:
             self.time_base = numpy.linspace(*args)
             self.push_time_base_event()
@@ -242,14 +260,14 @@ class Scope(Device):
     def push_time_base_event(self):
         """Push the TANGO change event for the time base."""
         if self.events:
-            self.push_change_event("TimeBase", self.time_scale)
+            self.push_change_event(self.time_base_name, self.time_base)
 
     def setup_events(self):
         """Setup events for waveforms and timescale."""
         if self.events:
             for name in self.waveform_names.values():
-                self.set_change_event(name, True, False)
-            self.set_change_event("TimeBase", True, False)
+                self.set_change_event(name, True, True)
+            self.set_change_event(self.time_base_name, True, False)
 
 # ------------------------------------------------------------------
 #    Update methods
@@ -291,9 +309,8 @@ class Scope(Device):
             self.set_state(PyTango.DevState.FAULT)
             return
         # Init state
-        if self.get_state() != PyTango.DevState.FAULT and self.connected:
-            state = DevState.RUNNING if any(self.state_queue) else DevState.ON
-            self.set_state(state)
+        if self.get_state() != PyTango.DevState.INIT and self.connected:
+            self.set_state(DevState.STANDBY)
             return
 
 # ------------------------------------------------------------------
@@ -318,7 +335,6 @@ class Scope(Device):
         self.stamp = time()
         self.request_queue = deque()
         self.report_queue = deque(maxlen=1)
-        self.rotate = deque(range(5))
         self.linspace_args = None
         self.alive = True
         self.error = ""
@@ -336,18 +352,17 @@ class Scope(Device):
                   'connection_timeout': connection_ms,
                   'instrument_timeout': instrument_ms,
                   'callback': callback}
-        self.scope = RohdeSchwarzRTMConnection(**kwargs)
+        self.scope = self.connection_class(**kwargs)
 
         # Instrument attributes
-        self.idn = "unknown"
+        self.identifier = "unknown"
         self.status = ""
         self.time_scale = []
-        self.hposition = 0.0
-        self.hrange = 0.0
+        self.time_position = 0.0
+        self.time_range = 0.0
         self.trigger_channel = 0
         self.trigger_slope = 0
-        self.state_queue = deque(maxlen=5)
-        self.waveform_data = defaultdict(list)
+        self.waveform = defaultdict(list)
         self.coupling = defaultdict(str)
         self.vpositions = defaultdict(float)
         self.vranges = defaultdict(float)
@@ -385,16 +400,8 @@ class Scope(Device):
     def read_Identifier(self):
         return self.identifier
 
-    def is_read_allowed(self, request=None):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
-
-    def is_write_allowed(self, request=None):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
-
-    def is_read_write_allowed(self, request):
-        if request.READ_REQ:
-            return self.is_read_allowed()
-        return self.is_write_allowed()
+    def update_identifier(self):
+        self.identifier = self.scope.get_identifier()
 
 # ------------------------------------------------------------------
 #    Time attributes
@@ -417,6 +424,10 @@ class Scope(Device):
 
     def write_TimeRange(self, time_range):
         self.enqueue(self.scope.set_time_range, time_range)
+        self.enqueue(self.update_time_range)
+
+    def update_time_range(self):
+        self.time_range = self.scope.get_time_range()
 
     # Time Position
 
@@ -435,6 +446,10 @@ class Scope(Device):
 
     def write_TimePosition(self, position):
         self.enqueue(self.scope.set_time_position, position)
+        self.enqueue(self.update_time_position)
+
+    def update_time_position(self):
+        self.time_position = self.scope.get_time_position()
 
     # Time Base
 
@@ -455,67 +470,75 @@ class Scope(Device):
 
     # Channel Enabled
 
-    enabled_attribute = lambda channel: rw_attribute(
+    channel_enabled_attribute = lambda channel: rw_attribute(
         dtype=bool,
         label="Channel enabled {0}".format(channel),
         doc="Channel {0} status (enabled or disabled)".format(channel),
     )
 
-    def read_enabled(self, channel):
+    def read_channel_enabled(self, channel):
         return self.channel_enabled[channel]
 
-    def write_enabled(self, enabled, channel):
+    def write_channel_enabled(self, enabled, channel):
         self.enqueue(self.scope.set_channel_enabled, channel, enabled)
+        self.enqueue(self.update_channel_enabled, channel)
 
-    ChannelEnabled1 = enabled_attribute(1)
-    read_ChannelEnabled1 = partial(read_enabled, channel=1)
-    write_ChannelEnabled1 = partial(write_enabled, channel=1)
+    def update_channel_enabled(self, channel):
+        self.channel_enabled = self.scope.get_channel_enabled(channel)
 
-    ChannelEnabled2 = enabled_attribute(2)
-    read_ChannelEnabled2 = partial(read_enabled, channel=2)
-    write_ChannelEnabled2 = partial(write_enabled, channel=2)
+    ChannelEnabled1 = channel_enabled_attribute(1)
+    read_ChannelEnabled1 = partial(read_channel_enabled, channel=1)
+    write_ChannelEnabled1 = partial(write_channel_enabled, channel=1)
 
-    ChannelEnabled3 = enabled_attribute(3)
-    read_ChannelEnabled3 = partial(read_enabled, channel=3)
-    write_ChannelEnabled3 = partial(write_enabled, channel=3)
+    ChannelEnabled2 = channel_enabled_attribute(2)
+    read_ChannelEnabled2 = partial(read_channel_enabled, channel=2)
+    write_ChannelEnabled2 = partial(write_channel_enabled, channel=2)
 
-    ChannelEnabled4 = enabled_attribute(4)
-    read_ChannelEnabled4 = partial(read_enabled, channel=4)
-    write_ChannelEnabled4 = partial(write_enabled, channel=4)
+    ChannelEnabled3 = channel_enabled_attribute(3)
+    read_ChannelEnabled3 = partial(read_channel_enabled, channel=3)
+    write_ChannelEnabled3 = partial(write_channel_enabled, channel=3)
+
+    ChannelEnabled4 = channel_enabled_attribute(4)
+    read_ChannelEnabled4 = partial(read_channel_enabled, channel=4)
+    write_ChannelEnabled4 = partial(write_channel_enabled, channel=4)
 
     # Channel Coupling
 
-    coupling_attribute = lambda channel: rw_attribute(
+    channel_coupling_attribute = lambda channel: rw_attribute(
         dtype=str,
         label="Channel coupling {0}".format(channel),
         doc="Coupling for channel {0}".format(channel),
     )
 
-    def read_coupling(self, channel):
+    def read_channel_coupling(self, channel):
         return self.channel_coupling[channel]
 
-    def write_coupling(self, coupling, channel):
+    def write_channel_coupling(self, coupling, channel):
         self.enqueue(self.scope.set_channel_coupling, channel, coupling)
+        self.enqueue(self.update_channel_coupling, channel)
 
-    ChannelCoupling1 = coupling_attribute(1)
-    read_ChannelCoupling1 = partial(read_coupling, channel=1)
-    write_ChannelCoupling1 = partial(write_coupling, channel=1)
+    def update_channel_channel_coupling(self, channel):
+        self.channel_coupling = self.scope.get_channel_coupling(channel)
 
-    ChannelCoupling2 = coupling_attribute(2)
-    read_ChannelCoupling2 = partial(read_coupling, channel=2)
-    write_ChannelCoupling2 = partial(write_coupling, channel=2)
+    ChannelCoupling1 = channel_coupling_attribute(1)
+    read_ChannelCoupling1 = partial(read_channel_coupling, channel=1)
+    write_ChannelCoupling1 = partial(write_channel_coupling, channel=1)
 
-    ChannelCoupling3 = coupling_attribute(3)
-    read_ChannelCoupling3 = partial(read_coupling, channel=3)
-    write_ChannelCoupling3 = partial(write_coupling, channel=3)
+    ChannelCoupling2 = channel_coupling_attribute(2)
+    read_ChannelCoupling2 = partial(read_channel_coupling, channel=2)
+    write_ChannelCoupling2 = partial(write_channel_coupling, channel=2)
 
-    ChannelCoupling4 = coupling_attribute(4)
-    read_ChannelCoupling4 = partial(read_coupling, channel=4)
-    write_ChannelCoupling4 = partial(write_coupling, channel=4)
+    ChannelCoupling3 = channel_coupling_attribute(3)
+    read_ChannelCoupling3 = partial(read_channel_coupling, channel=3)
+    write_ChannelCoupling3 = partial(write_channel_coupling, channel=3)
+
+    ChannelCoupling4 = channel_coupling_attribute(4)
+    read_ChannelCoupling4 = partial(read_channel_coupling, channel=4)
+    write_ChannelCoupling4 = partial(write_channel_coupling, channel=4)
 
     # Channel Position
 
-    position_attribute = lambda channel: rw_attribute(
+    channel_position_attribute = lambda channel: rw_attribute(
         dtype=float,
         unit="V",
         format="%4.3f",
@@ -523,31 +546,35 @@ class Scope(Device):
         doc="Position for channel {0}".format(channel),
     )
 
-    def read_position(self, channel):
+    def read_channel_position(self, channel):
         return self.channel_positions[channel]
 
-    def write_position(self, position, channel):
+    def write_channel_position(self, position, channel):
         self.enqueue(self.scope.set_channel_position, channel, position)
+        self.enqueue(self.update_channel_position, channel)
 
-    ChannelPosition1 = position_attribute(1)
-    read_ChannelPosition1 = partial(read_position, channel=1)
-    write_ChannelPosition1 = partial(write_position, channel=1)
+    def update_channel_position(self, channel):
+        self.channel_position = self.scope.get_channel_position(channel)
 
-    ChannelPosition2 = position_attribute(2)
-    read_ChannelPosition2 = partial(read_position, channel=2)
-    write_ChannelPosition2 = partial(write_position, channel=2)
+    ChannelPosition1 = channel_position_attribute(1)
+    read_ChannelPosition1 = partial(read_channel_position, channel=1)
+    write_ChannelPosition1 = partial(write_channel_position, channel=1)
 
-    ChannelPosition3 = position_attribute(3)
-    read_ChannelPosition3 = partial(read_position, channel=3)
-    write_ChannelPosition3 = partial(write_position, channel=3)
+    ChannelPosition2 = channel_position_attribute(2)
+    read_ChannelPosition2 = partial(read_channel_position, channel=2)
+    write_ChannelPosition2 = partial(write_channel_position, channel=2)
 
-    ChannelPosition4 = position_attribute(4)
-    read_ChannelPosition4 = partial(read_position, channel=4)
-    write_ChannelPosition4 = partial(write_position, channel=4)
+    ChannelPosition3 = channel_position_attribute(3)
+    read_ChannelPosition3 = partial(read_channel_position, channel=3)
+    write_ChannelPosition3 = partial(write_channel_position, channel=3)
+
+    ChannelPosition4 = channel_position_attribute(4)
+    read_ChannelPosition4 = partial(read_channel_position, channel=4)
+    write_ChannelPosition4 = partial(write_channel_position, channel=4)
 
     # Channel Scale
 
-    scale_attribute = lambda channel: rw_attribute(
+    channel_scale_attribute = lambda channel: rw_attribute(
         dtype=float,
         unit="V/div",
         format="%4.3f",
@@ -555,27 +582,31 @@ class Scope(Device):
         doc="Scale for channel {0}".format(channel),
     )
 
-    def read_scale(self, channel):
+    def read_channel_scale(self, channel):
         return self.channel_scales[channel]
 
-    def write_scale(self, scale, channel):
+    def write_channel_scale(self, scale, channel):
         self.enqueue(self.scope.set_channel_scale, channel, scale)
+        self.enqueue(self.update_channel_position, channel)
 
-    ChannelScale1 = scale_attribute(1)
-    read_ChannelScale1 = partial(read_scale, channel=1)
-    write_ChannelScale1 = partial(write_scale, channel=1)
+    def update_channel_scale(self, channel):
+        self.channel_scale = self.scope.get_channel_scale(channel)
 
-    ChannelScale2 = scale_attribute(2)
-    read_ChannelScale2 = partial(read_scale, channel=2)
-    write_ChannelScale2 = partial(write_scale, channel=2)
+    ChannelScale1 = channel_scale_attribute(1)
+    read_ChannelScale1 = partial(read_channel_scale, channel=1)
+    write_ChannelScale1 = partial(write_channel_scale, channel=1)
 
-    ChannelScale3 = scale_attribute(3)
-    read_ChannelScale3 = partial(read_scale, channel=3)
-    write_ChannelScale3 = partial(write_scale, channel=3)
+    ChannelScale2 = channel_scale_attribute(2)
+    read_ChannelScale2 = partial(read_channel_scale, channel=2)
+    write_ChannelScale2 = partial(write_channel_scale, channel=2)
 
-    ChannelScale4 = scale_attribute(4)
-    read_ChannelScale4 = partial(read_scale, channel=4)
-    write_ChannelScale4 = partial(write_scale, channel=4)
+    ChannelScale3 = channel_scale_attribute(3)
+    read_ChannelScale3 = partial(read_channel_scale, channel=3)
+    write_ChannelScale3 = partial(write_channel_scale, channel=3)
+
+    ChannelScale4 = channel_scale_attribute(4)
+    read_ChannelScale4 = partial(read_channel_scale, channel=4)
+    write_ChannelScale4 = partial(write_channel_scale, channel=4)
 
 # ------------------------------------------------------------------
 #    Waveforms
@@ -652,6 +683,10 @@ class Scope(Device):
 
     def write_level(self, level, channel):
         self.enqueue(self.scope.set_trigger_level, channel, level)
+        self.enqueue(self.update_trigger_level, channel)
+
+    def update_trigger_level(self, channel):
+        self.trigger_level = self.scope.get_trigger_level(channel)
 
     TriggerLevel1 = level_attribute(1)
     read_TriggerLevel1 = partial(read_level, channel=1)
@@ -685,6 +720,10 @@ class Scope(Device):
 
     def write_TriggerSlope(self, slope):
         self.enqueue(self.scope.set_trigger_slope, slope)
+        self.enqueue(self.update_trigger_slope)
+
+    def update_trigger_slope(self):
+        self.trigger_slope = self.scope.get_trigger_slope()
 
     # Trigger source
 
@@ -702,6 +741,10 @@ class Scope(Device):
 
     def write_TriggerSource(self, source):
         self.enqueue(self.scope.set_trigger_source, source)
+        self.enqueue(self.update_trigger_source)
+
+    def update_trigger_source(self):
+        self.trigger_source = self.scope.get_trigger_source()
 
 # ------------------------------------------------------------------
 #    Commands
@@ -711,19 +754,37 @@ class Scope(Device):
 
     @command
     def Run(self):
-        self.enqueue(self.scope.issueRun)
+        self.set_state(DevState.RUNNING)
 
     def is_Run_allowed(self):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+        return self.get_state() == DevState.STANDBY
 
     # Stop command
 
     @command
     def Stop(self):
-        self.enqueue(self.scope.issueStop)
+        self.set_state(DevState.ON)
 
     def is_Stop_allowed(self):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+        return self.get_state() == DevState.RUNNING
+
+    # On command
+
+    @command
+    def On(self):
+        self.set_state(DevState.ON)
+
+    def is_On_allowed(self):
+        return self.get_state() == DevState.STANDBY
+
+    # Standby command
+
+    @command
+    def Standby(self):
+        self.set_state(DevState.STANDBY)
+
+    def is_Standby_allowed(self):
+        return self.get_state() == DevState.ON
 
     # Autoset
 
@@ -732,7 +793,7 @@ class Scope(Device):
         self.enqueue(self.scope.issueAutoset)
 
     def is_Autoset_allowed(self):
-        return self.get_state() == PyTango.DevState.RUNNING
+        return self.get_state() in [DevState.ON, DevState.RUNNING]
 
     # Execute command
 
