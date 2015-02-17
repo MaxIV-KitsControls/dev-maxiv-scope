@@ -7,7 +7,7 @@ from time import sleep
 from functools import wraps, partial
 from contextlib import contextmanager
 from timeit import default_timer as time
-from PyTango import DevState, AttrWriteType
+from threading import _Condition, _Event
 
 
 # DeviceMeta metaclass
@@ -32,6 +32,34 @@ def DeviceMeta(name, bases, attrs):
     return PyTango.server.DeviceMeta(name, bases, dct)
 
 
+# Lock Event
+class LockEvent(_Condition, _Event):
+    """Event that can be locked to perform additional test."""
+
+    def __init__(self):
+        """Initialize the event."""
+        _Condition.__init__(self)
+        _Event.__init__(self)
+
+    def wait(self, timeout=None):
+        """Wait for the event to be set."""
+        with self:
+            if not self.is_set():
+                _Condition.wait(self, timeout)
+            return self.is_set()
+
+    def set(self):
+        """Set the event."""
+        with self:
+            _Event.set(self)
+            self.notify()
+
+    def clear(self):
+        """Clear the event."""
+        with self:
+            _Event.clear(self)
+
+
 # Tick context
 @contextmanager
 def tick_context(value):
@@ -50,7 +78,7 @@ def safe_traceback():
 
 
 # Safe method decorator
-def safe_method(handler_name):
+def safe_loop(handler_name):
     """Decorator to define an exception handler."""
     # Decorator
     def decorator(func):
@@ -59,7 +87,8 @@ def safe_method(handler_name):
         def wrapper(self, *args, **kwargs):
             # Run method
             try:
-                return func(self, *args, **kwargs)
+                while not func(self, *args, **kwargs):
+                    pass
             # Handle exception
             except Exception as exc:
                 handler = getattr(self, handler_name, None)

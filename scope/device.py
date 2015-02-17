@@ -4,6 +4,7 @@
 import numpy
 import socket
 import operator
+from Queue import Queue
 from threading import Thread
 from functools import partial
 from timeit import default_timer as time
@@ -11,8 +12,8 @@ from collections import deque, defaultdict
 
 # PyTango imports
 import PyTango
-from PyTango import DevState
-from PyTango.server import command, Device
+from PyTango import DevState, AttrQuality
+from PyTango.server import Device, device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
 # Library imports
@@ -21,8 +22,8 @@ from rohdeschwarzrtmlib import RohdeSchwarzRTMConnection
 from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 
 # Common imports
-from scope.common import DeviceMeta, StopIO
 from scope.common import read_attribute, rw_attribute
+from scope.common import DeviceMeta, StopIO, LockEvent
 from scope.common import tick_context, safe_loop, safe_traceback
 
 
@@ -58,7 +59,9 @@ class Scope(Device):
     def scope_loop(self):
         """The target for the thread to access the instrument."""
         # Wait to be awaken
-        self.awake.wait()
+        with self.awake:
+            if not self.request_queue:
+                self.awake.wait()
         # Not alive
         if not self.alive:
             self.close_connection()
@@ -79,6 +82,20 @@ class Scope(Device):
             # Handle exception
         except Exception as exc:
             self.handle_exception(exc)
+
+    @safe_loop("register_exception")
+    def decoding_loop(self):
+        """The target for the thread to decode the waveforms."""
+        item = self.decoding_queue.get(True)
+        # Check item
+        if item is None:
+            return True
+        stamp, raw_data = item
+        # Decode waveforms
+        decoded = self.scope.decode_waveforms(raw_data, both=True)
+        self.waveforms, self.raw_waveforms = decoded
+        # Push events
+        self.push_waveform_events(stamp=stamp)
 
     def check_connection(self):
         """Try to connect to the instrument if not connected."""
@@ -121,7 +138,7 @@ class Scope(Device):
         result = self.scope.get_waveforms(both=True)
         self.waveforms, self.raw_waveforms = result
         self.update_time_base()
-        self.push_channel_events()
+        self.push_waveform_events()
 
     def update_time_base(self):
         """Compute a new time base if necessary."""
@@ -156,8 +173,7 @@ class Scope(Device):
 
     def update_scope_status(self):
         """Update instrument status and time stamp"""
-        self.status = self.scope.getOperCond()
-        self.state_queue.append(self.scope.getState())
+        self.status = self.scope.get_status()
         self.warning = False
         self.stamp = time()
 
@@ -249,13 +265,20 @@ class Scope(Device):
 #    Event methods
 # ------------------------------------------------------------------
 
-    def push_channel_events(self, channels=channels):
+    def push_waveform_events(self, channels=channels, stamp=None):
         """Push the TANGO change events for the given channels."""
+        valid = AttrQuality.VALID
+        # Loop over channels
         if self.events:
             for channel in channels:
+                # Waveform
                 name = self.waveform_names[channel]
-                data = self.waveform_data[channel]
+                data = self.waveforms[channel]
                 self.push_change_event(name, data)
+                # Raw waveforms
+                name = self.raw_waveform_names[channel]
+                data = self.raw_waveforms[channel]
+                self.push_change_event(name, data, valid, stamp)
 
     def push_time_base_event(self):
         """Push the TANGO change event for the time base."""
@@ -313,6 +336,14 @@ class Scope(Device):
             self.set_state(DevState.STANDBY)
             return
 
+    def set_state(self, state):
+        """Awake the scope thread when the device is in the right state."""
+        Device.set_state(self, state)
+        if state in (DevState.ON, DevState.RUNNING):
+            self.awake.set()
+        else:
+            self.awake.clear()
+
 # ------------------------------------------------------------------
 #    Initialization methods
 # ------------------------------------------------------------------
@@ -322,7 +353,7 @@ class Scope(Device):
         PyTango.Device_4Impl.__init__(self, cl, name)
         self.setup_events()
         self.init_device()
-        self.push_channel_events(self.channels)
+        self.push_waveforms_events()
 
     @debug_it
     def init_device(self):
@@ -331,23 +362,26 @@ class Scope(Device):
         self.set_state(PyTango.DevState.INIT)
 
         # Thread attribute
+        self.decoding_thread = Thread(target=self.decoding_loop)
         self.scope_thread = Thread(target=self.scope_loop)
-        self.stamp = time()
-        self.request_queue = deque()
         self.report_queue = deque(maxlen=1)
+        self.decoding_queue = Queue()
+        self.request_queue = deque()
         self.linspace_args = None
+        self.awake = LockEvent()
+        self.reporting = False
+        self.warning = False
+        self.waiting = False
+        self.stamp = time()
         self.alive = True
         self.error = ""
-        self.warning = False
-        self.reporting = False
-        self.waiting = False
 
-        # Instanciate instrument
+        # Instanciate scope
         callback_ms = int(self.callback_timeout * 1000)
         connection_ms = int(self.connection_timeout * 1000)
         instrument_ms = int(self.instrument_timeout * 1000)
         callback = self.scope_callback
-        kwargs = {'host': self.Instrument,
+        kwargs = {'host': self.Host,
                   'callback_timeout': callback_ms,
                   'connection_timeout': connection_ms,
                   'instrument_timeout': instrument_ms,
@@ -375,16 +409,36 @@ class Scope(Device):
 
         # Run thread
         self.scope_thread.start()
+        self.decoding_thread.start()
 
     @debug_it
     def delete_device(self):
         """Try to stop the thread."""
+        self.stop_scope_thread()
+        self.stop_decoding_thread()
+
+    def stop_scope_thread(self):
+        """Stop the scope thread."""
         self.alive = False
-        if self.scope_thread.is_alive():
-            timeout = self.connection_timeout + self.callback_timeout
-            self.scope_thread.join(timeout)
+        self.awake.set()
+        timeout = self.connection_timeout + self.callback_timeout
+        self.scope_thread.join(timeout)
         if self.scope_thread.is_alive():
             self.error_stream("Cannot join the reading thread")
+
+    def stop_decoding_thread(self):
+        """Stop the decoding thread."""
+        self.decoding_queue.put(None)
+        self.decoding_thread.join()
+
+# ------------------------------------------------------------------
+#    General attributes
+# ------------------------------------------------------------------
+
+    Host = device_property(
+        dtype=str,
+        doc="host name of the scope",
+        )
 
 # ------------------------------------------------------------------
 #    General attributes
@@ -465,7 +519,7 @@ class Scope(Device):
         return self.time_base
 
 # ------------------------------------------------------------------
-#    Channel settings
+#    Channel setting attributes
 # ------------------------------------------------------------------
 
     # Channel Enabled
@@ -609,7 +663,7 @@ class Scope(Device):
     write_ChannelScale4 = partial(write_channel_scale, channel=4)
 
 # ------------------------------------------------------------------
-#    Waveforms
+#    Waveforms attributes
 # ------------------------------------------------------------------
 
     # Waveforms
@@ -665,7 +719,7 @@ class Scope(Device):
     read_RawWaveform4 = partial(read_raw_waveform, channel=4)
 
 # ------------------------------------------------------------------
-#    Trigger related attributes
+#    Trigger attributes
 # ------------------------------------------------------------------
 
     # Trigger levels
