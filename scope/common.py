@@ -4,10 +4,18 @@
 import PyTango
 import traceback
 from time import sleep
-from functools import wraps, partial
 from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
+from functools import wraps, partial as _partial
+
+
+# Patched version of partial
+def partial(*args, **kwargs):
+    res = _partial(*args, **kwargs)
+    res.__module__ = __name__
+    res.__name__ = "partial"
+    return res
 
 
 # DeviceMeta metaclass

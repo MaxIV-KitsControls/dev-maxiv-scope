@@ -5,12 +5,14 @@ import scope
 from time import sleep
 from mock import MagicMock
 from PyTango import DevState
-from devicetest import DeviceTestCase
 from itertools import product
+from collections import defaultdict
+from devicetest import DeviceTestCase
+
 
 # Constants
 READ = 0.001
-UPDATE = 0.003
+UPDATE = 0.002
 PRECISION = 5
 
 
@@ -20,7 +22,7 @@ PRECISION = 5
 # wait during the tests in order the let the device update itself.
 # Hence, the sleep calls have to be secured enough not to produce
 # any inconsistent behavior. However, the unittests need to run fast.
-# Here, we use a factor 3 between the read period and the sleep calls.
+# Here, we use a factor 2 between the read period and the sleep calls.
 
 
 # Device test case
@@ -28,7 +30,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
     """Test case for packet generation."""
 
     device = scope.Scope
-    properties = {'Instrument': '1.2.3.4'}
+    properties = {'Host': '1.2.3.4'}
     empty = None  # Should be []
 
     def assertEquals(self, arg1, arg2):
@@ -38,16 +40,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
         else:
             DeviceTestCase.assertEquals(self, arg1, arg2)
 
-    @staticmethod
-    def gen_update_func(dct):
-        def update_states(states):
-            states.clear()
-            states.update(dct)
-            return range(1, 5)
-        return update_states
-
-    def attribute_pattern(self, attr, values, read, write,
-                          func=None, update=False):
+    def attribute_pattern(self, attr, values, read, write):
         for values in product(values, repeat=4):
             dct = dict(zip(range(1, 5), values))
             # Write
@@ -61,17 +54,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
             # Check
             for key, value in dct.items():
                 self.assertEquals(value, write_dct[key])
-            # Apply func
-            if func:
-                for key, value in write_dct.items():
-                    write_dct[key] = func(value)
-            # Update
-            if update:
-                update_func = self.gen_update_func(write_dct)
-                setattr(self.instrument, read, update_func)
-            else:
-                update_func = getattr(self.instrument, read)
-                update_func.return_value = write_dct
+            read_func = getattr(self.instrument, read)
+            read_func.side_effect = dct.get
             # Wait
             sleep(UPDATE)
             # Read
@@ -83,86 +67,100 @@ class ScopeDeviceTestCase(DeviceTestCase):
     def mocking(cls):
         """Mock external libraries."""
         # Mock numpy
-        cls.numpy = scope.numpy = MagicMock()
+        cls.numpy = scope.device.numpy = MagicMock()
         cls.numpy.linspace.return_value = []
         # Mock rtm library
-        cls.connection = scope.Scope.intrument_class = MagicMock()
+        cls.connection = scope.Scope.connection_class = MagicMock()
         cls.instrument = cls.connection.return_value
+        is_connected = lambda *args: cls.instrument.connect.called
+        cls.instrument.connected.__get__ = is_connected
         # Set up
         scope.Scope.events = False
         scope.Scope.minimal_period = READ
-        cls.instrument.getOperCond.return_value = "Some status."
-        cls.instrument.getIDN.return_value = "Some ID"
+        cls.instrument.get_status.return_value = "Some status."
+        cls.instrument.get_identifier.return_value = "Some ID"
+        cls.instrument.get_time_position.return_value = 0
+        waveforms = defaultdict(list), defaultdict(list)
+        cls.instrument.get_waveforms.return_value = waveforms
+        cls.instrument.decode_waveforms.return_value = waveforms
 
     def setUp(self):
         """Let the inner thread initialize the device."""
         DeviceTestCase.setUp(self)
+        self.device.On()
         sleep(UPDATE)
 
     def test_properties(self):
-        self.assertEquals("Some ID", self.device.IDN)
+        self.assertEquals("Some ID", self.device.Identifier)
         self.assertIn("Some status", self.device.status())
         self.assertEquals(DevState.ON, self.device.state())
-        self.connection.assert_called_with('1.2.3.4', 8000, 8000)
+        self.assertTrue(self.connection.called)
+        callback = self.connection.call_args[1].get("callback")
+        self.connection.assert_called_with(host='1.2.3.4',
+                                           connection_timeout=2000,
+                                           instrument_timeout=5000,
+                                           callback_timeout=500,
+                                           callback=callback)
 
     def test_states(self):
-        self.attribute_pattern("stateCh", [False, True],
-                               "updateChanStates", "setChanState", update=True)
+        self.attribute_pattern("ChannelEnabled", [False, True],
+                               "get_channel_enabled", "set_channel_enabled")
 
     def test_coupling(self):
-        self.attribute_pattern("couplingCh", ["AC", "DC"],
-                               "updateCoupling", "setCoupling", update=True)
+        self.attribute_pattern("ChannelCoupling", ["AC", "DC"],
+                               "get_channel_coupling", "set_channel_coupling")
 
     def test_position(self):
-        self.attribute_pattern("positionCh", [-4.3, 1.25],
-                               "getVPositionAll", "setVPosition")
+        self.attribute_pattern("ChannelPosition", [-4.3, 1.25],
+                               "get_channel_position", "set_channel_position")
 
     def test_scale(self):
-        func = lambda arg: 8*arg
-        self.attribute_pattern("vScaleCh", [-4.3, 1.25],
-                               "getVRangeAll", "setVScale", func=func)
+        self.attribute_pattern("ChannelScale", [-4.3, 1.25],
+                               "get_channel_scale", "set_channel_scale")
 
     def test_range(self):
         write_range = 0.1
         expected_args = -0.05, 0.05, 0
         read_scale = [x*0.1 for x in range(100)]
         # Write range
-        self.assertEqual(self.device.TimeScale, self.empty)
+        self.assertEqual(self.device.TimeBase, self.empty)
         self.numpy.linspace.return_value = read_scale
-        self.instrument.getHRange.return_value = write_range
-        self.device.hRange = write_range
+        self.instrument.get_time_range.return_value = write_range
+        self.device.TimeRange = write_range
         # Wait
         sleep(UPDATE)
         # Check
-        arg = self.instrument.setHRange.call_args[0][0]
+        arg = self.instrument.set_time_range.call_args[0][0]
         self.assertEqual(write_range, arg)
-        self.assertEqual(self.device.TimeScale.tolist(), read_scale)
         self.numpy.linspace.assert_called_with(*expected_args)
+        self.assertEqual(self.device.TimeBase.tolist(), read_scale)
         # Change read scale
         new_read_scale = [x*0.2 for x in range(100)]
         self.numpy.linspace.return_value = new_read_scale
         # Wait
         sleep(UPDATE)
         # No change detected
-        self.assertEqual(self.device.TimeScale.tolist(), read_scale)
+        self.assertEqual(self.device.TimeBase.tolist(), read_scale)
         # Change range return value
         write_range = 0.01
         expected_args = -0.005, 0.005, 0
-        self.instrument.getHRange.return_value = write_range
+        self.instrument.get_time_range.return_value = write_range
         # Wait
         sleep(UPDATE)
         # Change detected
         self.numpy.linspace.assert_called_with(*expected_args)
-        self.assertEqual(self.device.TimeScale.tolist(), new_read_scale)
+        self.assertEqual(self.device.TimeBase.tolist(), new_read_scale)
 
     def test_acquisition(self):
         # Check initial state
         for channel in range(1, 5):
-            result = getattr(self.device, "WaveFormDataCh"+str(channel))
+            result = getattr(self.device, "Waveform"+str(channel))
             self.assertEqual(result, self.empty)
         # Start device
         self.assertEquals(DevState.ON, self.device.state())
-        self.device.start()
+        self.device.run()
+        sleep(UPDATE)
+        print self.device.status()
         self.assertEquals(DevState.RUNNING, self.device.state())
         # Stop device
         self.device.stop()

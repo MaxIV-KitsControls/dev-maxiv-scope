@@ -6,7 +6,6 @@ import socket
 import operator
 from Queue import Queue
 from threading import Thread
-from functools import partial
 from timeit import default_timer as time
 from collections import deque, defaultdict
 
@@ -17,13 +16,13 @@ from PyTango.server import Device, device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
 # Library imports
-from vxi11 import Vxi11Exception
+from vxi11.vxi11 import Vxi11Exception
 from rohdeschwarzrtmlib import RohdeSchwarzRTMConnection
 from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
 
 # Common imports
-from scope.common import read_attribute, rw_attribute
 from scope.common import DeviceMeta, StopIO, LockEvent
+from scope.common import partial, read_attribute, rw_attribute
 from scope.common import tick_context, safe_loop, safe_traceback
 
 
@@ -64,24 +63,29 @@ class Scope(Device):
                 self.awake.wait()
         # Not alive
         if not self.alive:
-            self.close_connection()
+            # Disconnect the scope
+            if self.connected:
+                self.disconnect()
             # Break the loop
             return True
-        # Catch all exceptions
-        try:
-            # Connect to the scope
-            self.check_connection()
-            # Acquire waveforms
-            if self.get_state() == DevState.RUNNING:
-                self.acquire_waveforms()
-            # Update values
-            elif self.get_state() == DevState.ON:
-                self.update_all()
-            # Process queue
-            self.process_queue()
-            # Handle exception
-        except Exception as exc:
-            self.handle_exception(exc)
+        # Control loop time
+        with tick_context(self.minimal_period):
+            # Catch all exceptions
+            try:
+                # Update scope status
+                if self.connected:
+                    self.update_scope_status()
+                    # Acquire waveforms
+                if self.connected and self.get_state() == DevState.RUNNING:
+                    self.acquire_waveforms()
+                    # Update values
+                elif self.connected and self.get_state() == DevState.ON:
+                    self.update_all()
+                # Process queue
+                self.process_queue()
+                # Handle exception
+            except Exception as exc:
+                self.handle_exception(exc)
 
     @safe_loop("register_exception")
     def decoding_loop(self):
@@ -90,25 +94,12 @@ class Scope(Device):
         # Check item
         if item is None:
             return True
-        stamp, raw_data = item
+        raw_data, stamp = item
         # Decode waveforms
         decoded = self.scope.decode_waveforms(raw_data, both=True)
         self.waveforms, self.raw_waveforms = decoded
         # Push events
         self.push_waveform_events(stamp=stamp)
-
-    def check_connection(self):
-        """Try to connect to the instrument if not connected."""
-        # Not connected
-        if not self.connected:
-            # Try to connect
-            self.scope.connect()
-            self.update_identifier()
-            # Configure the scope
-            self.scope.write('*CLS')
-            self.scope.set_binary_readout()
-        # Status
-        self.update_scope_status()
 
     def update_all(self):
         """Update all values."""
@@ -155,6 +146,37 @@ class Scope(Device):
             self.push_time_base_event()
         # Update args attribute
         self.linspace_args = args
+
+    def acquire_waveforms(self):
+        """Run a single acquisition and stamp it."""
+        item = self.scope.acquire_single(), time()
+        self.decoding_queue.put(item)
+
+# ------------------------------------------------------------------
+#    Scope methods
+# ------------------------------------------------------------------
+
+    def connect(self):
+        """Connect to the instrument."""
+        self.scope.connect()
+        self.update_identifier()
+
+    def disconnect(self):
+        """Disconnect from the intrument."""
+        self.scope.disconnect()
+
+    def prepare_acquisition(self):
+        """Prepare the waveform acquisition."""
+        pass
+
+    def clean_acquisition(self):
+        """Clean the waveform acquisition."""
+        pass
+
+    @property
+    def connected(self):
+        """Status of the connection."""
+        return self.scope.connected
 
 # ------------------------------------------------------------------
 #    Misc. methods
@@ -216,16 +238,6 @@ class Scope(Device):
             self.error_stream("Cannot log traceback.")
         self.alive = False
 
-    @debug_it
-    def close_connection(self):
-        """Close the connection with the instrument."""
-        self.scope.close()
-
-    @property
-    def connected(self):
-        """Status of the connection."""
-        return self.scope.connected
-
 # ------------------------------------------------------------------
 #    Queue methods
 # ------------------------------------------------------------------
@@ -267,7 +279,7 @@ class Scope(Device):
 
     def push_waveform_events(self, channels=channels, stamp=None):
         """Push the TANGO change events for the given channels."""
-        valid = AttrQuality.VALID
+        valid = AttrQuality.ATTR_VALID
         # Loop over channels
         if self.events:
             for channel in channels:
@@ -331,17 +343,13 @@ class Scope(Device):
         if self.error:
             self.set_state(PyTango.DevState.FAULT)
             return
-        # Init state
-        if self.get_state() != PyTango.DevState.INIT and self.connected:
-            self.set_state(DevState.STANDBY)
-            return
 
     def set_state(self, state):
         """Awake the scope thread when the device is in the right state."""
         Device.set_state(self, state)
         if state in (DevState.ON, DevState.RUNNING):
             self.awake.set()
-        else:
+        elif state != DevState.INIT:
             self.awake.clear()
 
 # ------------------------------------------------------------------
@@ -353,29 +361,46 @@ class Scope(Device):
         PyTango.Device_4Impl.__init__(self, cl, name)
         self.setup_events()
         self.init_device()
-        self.push_waveforms_events()
 
     @debug_it
     def init_device(self):
         """Initialize instance attributes and start the thread."""
+        # Initialize device
         self.get_device_properties()
         self.set_state(PyTango.DevState.INIT)
-
-        # Thread attribute
-        self.decoding_thread = Thread(target=self.decoding_loop)
+        # Scope thread attribute
         self.scope_thread = Thread(target=self.scope_loop)
-        self.report_queue = deque(maxlen=1)
-        self.decoding_queue = Queue()
         self.request_queue = deque()
-        self.linspace_args = None
         self.awake = LockEvent()
-        self.reporting = False
-        self.warning = False
-        self.waiting = False
-        self.stamp = time()
         self.alive = True
+        # Decoding thread attributes
+        self.decoding_thread = Thread(target=self.decoding_loop)
+        self.decoding_queue = Queue()
+        # ExecCommand support
+        self.report_queue = deque(maxlen=1)
+        self.reporting = False
+        self.waiting = False
+        # Misc. attributes
+        self.linspace_args = None
+        self.warning = False
+        self.stamp = time()
         self.error = ""
-
+        # Scope scalar attributes
+        self.identifier = "unknown"
+        self.status = ""
+        self.time_scale = []
+        self.time_position = 0.0
+        self.time_range = 0.0
+        self.trigger_channel = 0
+        self.trigger_slope = 0
+        # Scope dict attributes
+        self.waveforms = defaultdict(list)
+        self.raw_waveforms = defaultdict(list)
+        self.channel_coupling = defaultdict(str)
+        self.channel_positions = defaultdict(float)
+        self.channel_scales = defaultdict(float)
+        self.trigger_levels = defaultdict(int)
+        self.channel_enabled = defaultdict(bool)
         # Instanciate scope
         callback_ms = int(self.callback_timeout * 1000)
         connection_ms = int(self.connection_timeout * 1000)
@@ -387,29 +412,14 @@ class Scope(Device):
                   'instrument_timeout': instrument_ms,
                   'callback': callback}
         self.scope = self.connection_class(**kwargs)
-
-        # Instrument attributes
-        self.identifier = "unknown"
-        self.status = ""
-        self.time_scale = []
-        self.time_position = 0.0
-        self.time_range = 0.0
-        self.trigger_channel = 0
-        self.trigger_slope = 0
-        self.waveform = defaultdict(list)
-        self.coupling = defaultdict(str)
-        self.vpositions = defaultdict(float)
-        self.vranges = defaultdict(float)
-        self.levels = defaultdict(int)
-        self.active_channels = defaultdict(bool)
-
         # Push events
-        self.update_time_scale()
-        self.push_channel_events()
-
+        self.update_time_base()
+        self.push_waveform_events()
         # Run thread
         self.scope_thread.start()
         self.decoding_thread.start()
+        # Set state
+        self.set_state(PyTango.DevState.STANDBY)
 
     @debug_it
     def delete_device(self):
@@ -456,6 +466,17 @@ class Scope(Device):
 
     def update_identifier(self):
         self.identifier = self.scope.get_identifier()
+
+    def is_read_allowed(self, request=None):
+        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+
+    def is_write_allowed(self, request=None):
+        return self.get_state() in [DevState.ON, DevState.RUNNING]
+
+    def is_read_write_allowed(self, request):
+        if request.READ_REQ:
+            return self.is_read_allowed()
+        return self.is_write_allowed()
 
 # ------------------------------------------------------------------
 #    Time attributes
@@ -538,7 +559,8 @@ class Scope(Device):
         self.enqueue(self.update_channel_enabled, channel)
 
     def update_channel_enabled(self, channel):
-        self.channel_enabled = self.scope.get_channel_enabled(channel)
+        enabled = self.scope.get_channel_enabled(channel)
+        self.channel_enabled[channel] = enabled
 
     ChannelEnabled1 = channel_enabled_attribute(1)
     read_ChannelEnabled1 = partial(read_channel_enabled, channel=1)
@@ -571,8 +593,9 @@ class Scope(Device):
         self.enqueue(self.scope.set_channel_coupling, channel, coupling)
         self.enqueue(self.update_channel_coupling, channel)
 
-    def update_channel_channel_coupling(self, channel):
-        self.channel_coupling = self.scope.get_channel_coupling(channel)
+    def update_channel_coupling(self, channel):
+        position = self.scope.get_channel_coupling(channel)
+        self.channel_coupling[channel] = position
 
     ChannelCoupling1 = channel_coupling_attribute(1)
     read_ChannelCoupling1 = partial(read_channel_coupling, channel=1)
@@ -608,7 +631,8 @@ class Scope(Device):
         self.enqueue(self.update_channel_position, channel)
 
     def update_channel_position(self, channel):
-        self.channel_position = self.scope.get_channel_position(channel)
+        position = self.scope.get_channel_position(channel)
+        self.channel_positions[channel] = position
 
     ChannelPosition1 = channel_position_attribute(1)
     read_ChannelPosition1 = partial(read_channel_position, channel=1)
@@ -644,7 +668,8 @@ class Scope(Device):
         self.enqueue(self.update_channel_position, channel)
 
     def update_channel_scale(self, channel):
-        self.channel_scale = self.scope.get_channel_scale(channel)
+        scale = self.scope.get_channel_scale(channel)
+        self.channel_scales[channel] = scale
 
     ChannelScale1 = channel_scale_attribute(1)
     read_ChannelScale1 = partial(read_channel_scale, channel=1)
@@ -669,7 +694,7 @@ class Scope(Device):
     # Waveforms
 
     waveform_attribute = lambda channel: read_attribute(
-        dtype=(float),
+        dtype=(float,),
         unit="V",
         format="%4.3f",
         max_dim_x=10000,
@@ -695,7 +720,7 @@ class Scope(Device):
     # Raw waveforms
 
     raw_waveform_attribute = lambda channel: read_attribute(
-        dtype=(float),
+        dtype=(float,),
         unit="div",
         format="%4.3f",
         max_dim_x=10000,
@@ -740,7 +765,8 @@ class Scope(Device):
         self.enqueue(self.update_trigger_level, channel)
 
     def update_trigger_level(self, channel):
-        self.trigger_level = self.scope.get_trigger_level(channel)
+        level = self.scope.get_trigger_level(channel)
+        self.trigger_levels[channel] = level
 
     TriggerLevel1 = level_attribute(1)
     read_TriggerLevel1 = partial(read_level, channel=1)
@@ -808,15 +834,17 @@ class Scope(Device):
 
     @command
     def Run(self):
+        self.enqueue(self.prepare_acquisition)
         self.set_state(DevState.RUNNING)
 
     def is_Run_allowed(self):
-        return self.get_state() == DevState.STANDBY
+        return self.get_state() == DevState.ON
 
     # Stop command
 
     @command
     def Stop(self):
+        self.enqueue(self.clean_acquisition)
         self.set_state(DevState.ON)
 
     def is_Stop_allowed(self):
@@ -826,6 +854,7 @@ class Scope(Device):
 
     @command
     def On(self):
+        self.enqueue(self.connect)
         self.set_state(DevState.ON)
 
     def is_On_allowed(self):
@@ -835,6 +864,7 @@ class Scope(Device):
 
     @command
     def Standby(self):
+        self.enqueue(self.disconnect)
         self.set_state(DevState.STANDBY)
 
     def is_Standby_allowed(self):
@@ -844,7 +874,7 @@ class Scope(Device):
 
     @command
     def Autoset(self):
-        self.enqueue(self.scope.issueAutoset)
+        self.enqueue(self.scope.autoset)
 
     def is_Autoset_allowed(self):
         return self.get_state() in [DevState.ON, DevState.RUNNING]
@@ -896,18 +926,44 @@ class Scope(Device):
 
 
 # RTO scope device
-class RTOScope(Device):
+class RTOScope(Scope):
     """RTO scope device."""
     __metaclass__ = DeviceMeta
 
     # Library
     instrument_class = RohdeSchwarzRTOConnection
 
+    # Connect
+    def connect(self):
+        """Connect to the scope."""
+        Scope.connect(self)
+        self.scope.write('*CLS')
+        self.scope.set_binary_readout()
+
+    # Prepare acquisition
+    def prepare_acquisition(self):
+        """Prepare the acquisition."""
+        Scope.prepare_acquisition(self)
+        self.scope.SetDisplayOn()
+
+    # Clean acquisition
+    def clean_acquisition(self):
+        """Clean the acquisition."""
+        Scope.clean_acquisition(self)
+        self.scope.SetDisplayOff()
+
 
 # Generic scope device
-class RTMScope(Device):
+class RTMScope(Scope):
     """RTM scope device."""
     __metaclass__ = DeviceMeta
 
     # Library
     connection_class = RohdeSchwarzRTMConnection
+
+    # Connect
+    def connect(self):
+        """Connect to the scope."""
+        Scope.connect(self)
+        self.scope.write('*CLS')
+        self.scope.set_binary_readout()
