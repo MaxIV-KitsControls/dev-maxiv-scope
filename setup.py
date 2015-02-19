@@ -14,7 +14,7 @@ def safe_read(fname):
 
 
 # Setup
-setup(name="tangods-ovennode",
+setup(name="tangods-scope",
       version="2.4.4",
       description="Device servers for the Rohde and Schwarz oscilloscopes.",
       author="Vincent Michel; Paul Bell",

@@ -80,9 +80,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
         cls.instrument.get_status.return_value = "Some status."
         cls.instrument.get_identifier.return_value = "Some ID"
         cls.instrument.get_time_position.return_value = 0
-        waveforms = defaultdict(list), defaultdict(list)
-        cls.instrument.get_waveforms.return_value = waveforms
-        cls.instrument.decode_waveforms.return_value = waveforms
+        cls.instrument.stamp_acquisition.return_value = "", 0
+        cls.instrument.decode_waveforms.return_value = defaultdict(list)
 
     def setUp(self):
         """Let the inner thread initialize the device."""

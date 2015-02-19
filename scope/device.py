@@ -94,10 +94,10 @@ class Scope(Device):
         # Check item
         if item is None:
             return True
-        raw_data, stamp = item
+        string, stamp = item
         # Decode waveforms
-        decoded = self.scope.decode_waveforms(raw_data, both=True)
-        self.waveforms, self.raw_waveforms = decoded
+        data = self.scope.parse_waveform_string(string)
+        self.update_waveforms_from_data(data)
         # Push events
         self.push_waveform_events(stamp=stamp)
 
@@ -126,10 +126,16 @@ class Scope(Device):
 
     def update_waveforms(self):
         """Update the waveforms."""
-        result = self.scope.get_waveforms(both=True)
-        self.waveforms, self.raw_waveforms = result
+        data = self.scope.get_waveform_data(self.channel_enabled)
+        self.update_waveforms_from_data(data)
         self.update_time_base()
         self.push_waveform_events()
+
+    def update_waveforms_from_data(self, data):
+        """Update the waveforms with the given raw data."""
+        args = data, self.channel_scales, self.channel_positions
+        self.waveforms.update(self.scope.convert_waveforms(*args))
+        self.raw_waveforms.update(self.scope.convert_waveforms(data))
 
     def update_time_base(self):
         """Compute a new time base if necessary."""
@@ -149,7 +155,7 @@ class Scope(Device):
 
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
-        item = self.scope.acquire_single(), time()
+        item = self.scope.stamp_acquisition(self.channel_enabled)
         self.decoding_queue.put(item)
 
 # ------------------------------------------------------------------
@@ -868,16 +874,7 @@ class Scope(Device):
         self.set_state(DevState.STANDBY)
 
     def is_Standby_allowed(self):
-        return self.get_state() == DevState.ON
-
-    # Autoset
-
-    @command
-    def Autoset(self):
-        self.enqueue(self.scope.autoset)
-
-    def is_Autoset_allowed(self):
-        return self.get_state() in [DevState.ON, DevState.RUNNING]
+        return self.get_state() == DevState.ON 
 
     # Execute command
 
