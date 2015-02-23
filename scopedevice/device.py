@@ -203,6 +203,10 @@ class ScopeDevice(Device):
     def update_scope_status(self):
         """Update instrument status and time stamp"""
         self.status = self.scope.get_status()
+        self.reset_flags()
+
+    def reset_flags(self):
+        """Reset the flags that check the status of the scope."""
         self.warning = False
         self.stamp = time()
 
@@ -331,12 +335,12 @@ class ScopeDevice(Device):
         # Standby state
         if self.get_state() == PyTango.DevState.STANDBY:
             self.set_status("Scope disconnected. "
-                            "Run the 'On' command to connect.")
+                            "Run the On command to connect.")
             return
         # Running state
         if self.get_state() == PyTango.DevState.RUNNING:
             self.set_status("Scope is acquiring. "
-                            "Run the 'Stop' command to get back to ON state.")
+                            "Run the Stop command to get back.")
             return
         # Fault state
         if self.get_state() == PyTango.DevState.FAULT:
@@ -635,7 +639,7 @@ class ScopeDevice(Device):
 
     channel_position_attribute = lambda channel: rw_attribute(
         dtype=float,
-        unit="V",
+        unit="div",
         format="%4.3f",
         label="Channel position {0}".format(channel),
         doc="Position for channel {0}".format(channel),
@@ -864,6 +868,7 @@ class ScopeDevice(Device):
     def Stop(self):
         self.enqueue(self.clean_acquisition)
         self.set_state(DevState.ON)
+        self.reset_flags()
 
     def is_Stop_allowed(self):
         return self.get_state() == DevState.RUNNING
@@ -874,6 +879,7 @@ class ScopeDevice(Device):
     def On(self):
         self.enqueue(self.connect)
         self.set_state(DevState.ON)
+        self.reset_flags()
 
     def is_On_allowed(self):
         return self.get_state() == DevState.STANDBY
@@ -891,13 +897,14 @@ class ScopeDevice(Device):
     # Execute command
 
     @command(
-        dtype_in=str,
+        dtype_in=(str,),
         doc_in="Execute aribtrary command",
         dtype_out=str,
         doc_out="Returns the reply if a query,"
         "else DONE if suceeds, else TIMEOUT"
     )
     def Execute(self, command):
+        command = " ".join(command)
         # Check report queue
         if self.report_queue:
             msg = "A command is already being executed"
@@ -927,10 +934,10 @@ class ScopeDevice(Device):
         self.waiting = False
         self.events = ScopeDevice.events
         # Return
-        return result
+        return str(result)
 
-    def is_ExecCommand_allowed(self):
-        return self.get_state() not in [DevState.INIT, DevState.FAULT]
+    def is_Execute_allowed(self):
+        return self.get_state() in [DevState.ON, DevState.RUNNING]
 
 
 # RTO scope device
