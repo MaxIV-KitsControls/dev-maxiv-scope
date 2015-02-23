@@ -16,18 +16,16 @@ from PyTango.server import Device, device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
 # Library imports
-from vxi11.vxi11 import Vxi11Exception
-from rohdeschwarzrtmlib import RohdeSchwarzRTMConnection
-from rohdeschwarzrtolib import RohdeSchwarzRTOConnection
+from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
 
 # Common imports
-from scope.common import DeviceMeta, StopIO, LockEvent
-from scope.common import partial, read_attribute, rw_attribute
-from scope.common import tick_context, safe_loop, safe_traceback
+from scopedevice.common import DeviceMeta, StopIO, LockEvent
+from scopedevice.common import partial, read_attribute, rw_attribute
+from scopedevice.common import tick_context, safe_loop, safe_traceback
 
 
 # Generic scope device
-class Scope(Device):
+class ScopeDevice(Device):
     """Generic class for scope devices."""
     __metaclass__ = DeviceMeta
 
@@ -70,20 +68,21 @@ class Scope(Device):
             return True
         # Control loop time
         with tick_context(self.minimal_period):
-            # Catch all exceptions
+            # Update and acquisitions
             try:
-                # Update scope status
-                if self.connected:
-                    self.update_scope_status()
-                    # Acquire waveforms
+                # Update values
+                if self.connected and self.get_state() == DevState.ON:
+                    self.update_all()
+                # Acquire waveforms
                 if self.connected and self.get_state() == DevState.RUNNING:
                     self.acquire_waveforms()
-                    # Update values
-                elif self.connected and self.get_state() == DevState.ON:
-                    self.update_all()
-                # Process queue
+            # Handle exceptions
+            except Exception as exc:
+                self.handle_exception(exc)
+            # Process queue
+            try:
                 self.process_queue()
-                # Handle exception
+            # Handle exceptions
             except Exception as exc:
                 self.handle_exception(exc)
 
@@ -94,15 +93,17 @@ class Scope(Device):
         # Check item
         if item is None:
             return True
-        string, stamp = item
+        stamp, string = item
         # Decode waveforms
-        data = self.scope.parse_waveform_string(string)
+        args = self.channel_enabled, string
+        data = self.scope.parse_waveform_string(*args)
         self.update_waveforms_from_data(data)
         # Push events
         self.push_waveform_events(stamp=stamp)
 
     def update_all(self):
         """Update all values."""
+        self.update_scope_status()
         self.update_single_settings()
         for channel in self.channels:
             self.update_channel_settings(channel)
@@ -286,6 +287,8 @@ class Scope(Device):
     def push_waveform_events(self, channels=channels, stamp=None):
         """Push the TANGO change events for the given channels."""
         valid = AttrQuality.ATTR_VALID
+        if stamp is None:
+            stamp = time()
         # Loop over channels
         if self.events:
             for channel in channels:
@@ -296,7 +299,7 @@ class Scope(Device):
                 # Raw waveforms
                 name = self.raw_waveform_names[channel]
                 data = self.raw_waveforms[channel]
-                self.push_change_event(name, data, valid, stamp)
+                self.push_change_event(name, data, stamp, valid)
 
     def push_time_base_event(self):
         """Push the TANGO change event for the time base."""
@@ -325,6 +328,16 @@ class Scope(Device):
         if self.get_state() == PyTango.DevState.INIT:
             self.set_status("Initializing...")
             return
+        # Standby state
+        if self.get_state() == PyTango.DevState.STANDBY:
+            self.set_status("Scope disconnected. "
+                            "Run the 'On' command to connect.")
+            return
+        # Running state
+        if self.get_state() == PyTango.DevState.RUNNING:
+            self.set_status("Scope is acquiring. "
+                            "Run the 'Stop' command to get back to ON state.")
+            return
         # Fault state
         if self.get_state() == PyTango.DevState.FAULT:
             string = "Error: " + self.error + "\n"
@@ -332,10 +345,9 @@ class Scope(Device):
             string += "If the same error is raised, check the hardware state."
             self.set_status(string)
             return
-        # Status
+        # On state
         default_status = "No status available."
         status_string = self.status if self.status else default_status
-        # Update
         delta = time() - self.stamp
         if delta > self.update_timeout:
             update_string = "Last update {0:.2f} seconds ago.".format(delta)
@@ -874,18 +886,18 @@ class Scope(Device):
         self.set_state(DevState.STANDBY)
 
     def is_Standby_allowed(self):
-        return self.get_state() == DevState.ON 
+        return self.get_state() == DevState.ON
 
     # Execute command
 
     @command(
-        dtype_in=(str,),
+        dtype_in=str,
         doc_in="Execute aribtrary command",
-        dtype_out=(str,),
+        dtype_out=str,
         doc_out="Returns the reply if a query,"
         "else DONE if suceeds, else TIMEOUT"
     )
-    def Execute(self, argin):
+    def Execute(self, command):
         # Check report queue
         if self.report_queue:
             msg = "A command is already being executed"
@@ -894,8 +906,7 @@ class Scope(Device):
         self.events = False
         self.waiting = True
         # Equeue command
-        command = " ".join(argin)
-        self.enqueue(self.scope.issueCommand, command, report=True)
+        self.enqueue(self.scope.issue_command, command, report=True)
         # Handle command timeout
         start = time()
         while time() - start < self.command_timeout:
@@ -914,7 +925,7 @@ class Scope(Device):
             result += " (timeout = {0:3.1f} s)".format(self.command_timeout)
         # Restore state
         self.waiting = False
-        self.events = Scope.events
+        self.events = ScopeDevice.events
         # Return
         return result
 
@@ -923,44 +934,30 @@ class Scope(Device):
 
 
 # RTO scope device
-class RTOScope(Scope):
+class RTOScope(ScopeDevice):
     """RTO scope device."""
     __metaclass__ = DeviceMeta
 
     # Library
-    instrument_class = RohdeSchwarzRTOConnection
-
-    # Connect
-    def connect(self):
-        """Connect to the scope."""
-        Scope.connect(self)
-        self.scope.write('*CLS')
-        self.scope.set_binary_readout()
+    connection_class = RTOConnection
 
     # Prepare acquisition
     def prepare_acquisition(self):
         """Prepare the acquisition."""
-        Scope.prepare_acquisition(self)
-        self.scope.SetDisplayOn()
+        ScopeDevice.prepare_acquisition(self)
+        self.scope.set_display(False)
 
     # Clean acquisition
     def clean_acquisition(self):
         """Clean the acquisition."""
-        Scope.clean_acquisition(self)
-        self.scope.SetDisplayOff()
+        ScopeDevice.clean_acquisition(self)
+        self.scope.set_display(True)
 
 
 # Generic scope device
-class RTMScope(Scope):
+class RTMScope(ScopeDevice):
     """RTM scope device."""
     __metaclass__ = DeviceMeta
 
     # Library
-    connection_class = RohdeSchwarzRTMConnection
-
-    # Connect
-    def connect(self):
-        """Connect to the scope."""
-        Scope.connect(self)
-        self.scope.write('*CLS')
-        self.scope.set_binary_readout()
+    connection_class = RTMConnection

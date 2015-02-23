@@ -9,6 +9,7 @@ Information
 -----------
 
  - Package: tangods-scope
+ - Import:  scopedevice
  - Servers: RTMScope, RTOScope
  - Devices: RTMScope, RTOScope
  - Repo:    [dev-maxiv-scope][repo]

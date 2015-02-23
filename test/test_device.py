@@ -1,7 +1,7 @@
 """Contain the tests for the RTM Scope."""
 
 # Imports
-import scope
+import scopedevice
 from time import sleep
 from mock import MagicMock
 from PyTango import DevState
@@ -29,7 +29,7 @@ PRECISION = 5
 class ScopeDeviceTestCase(DeviceTestCase):
     """Test case for packet generation."""
 
-    device = scope.Scope
+    device = scopedevice.ScopeDevice
     properties = {'Host': '1.2.3.4'}
     empty = None  # Should be []
 
@@ -67,16 +67,16 @@ class ScopeDeviceTestCase(DeviceTestCase):
     def mocking(cls):
         """Mock external libraries."""
         # Mock numpy
-        cls.numpy = scope.device.numpy = MagicMock()
+        cls.numpy = scopedevice.device.numpy = MagicMock()
         cls.numpy.linspace.return_value = []
         # Mock rtm library
-        cls.connection = scope.Scope.connection_class = MagicMock()
+        cls.connection = scopedevice.ScopeDevice.connection_class = MagicMock()
         cls.instrument = cls.connection.return_value
         is_connected = lambda *args: cls.instrument.connect.called
         cls.instrument.connected.__get__ = is_connected
         # Set up
-        scope.Scope.events = False
-        scope.Scope.minimal_period = READ
+        scopedevice.ScopeDevice.events = False
+        scopedevice.ScopeDevice.minimal_period = READ
         cls.instrument.get_status.return_value = "Some status."
         cls.instrument.get_identifier.return_value = "Some ID"
         cls.instrument.get_time_position.return_value = 0

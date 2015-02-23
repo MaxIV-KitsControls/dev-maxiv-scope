@@ -1,3 +1,3 @@
 """Main execution."""
-from scope import run
+from scopedevice import run
 run()

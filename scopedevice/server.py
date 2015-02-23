@@ -3,7 +3,7 @@
 # Imports
 import sys
 from PyTango import server
-from scope.device import RTOScope, RTMScope
+from scopedevice.device import RTOScope, RTMScope
 
 #: Server name as used in the Tango database
 RTO_NAME = "RTOScope"
@@ -55,7 +55,7 @@ def run_rtm(args=None, **kwargs):
 
 
 # Run function
-def run(args=None, scope=None, **kwargs):
+def run(args=None, scope="", **kwargs):
     """Run an oscilloscope from a given scope type.
     It is based on the PyTango.server.run method.
 
@@ -66,7 +66,7 @@ def run(args=None, scope=None, **kwargs):
         args (iterable): args as given in the PyTango.server.run method
                          without the server name. If None, the sys.argv
                          list is used
-        scope (str): "RTO", "RTM" or None to use sys.argv instead
+        scope (str): "RTO", "RTM" or "" to use sys.argv instead
         kwargs: the other keywords argument are as given
                 in the PyTango.server.run method.
     """

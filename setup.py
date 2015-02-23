@@ -22,7 +22,7 @@ setup(name="tangods-scope",
       license="GPLv3",
       url="http://www.maxlab.lu.se",
       long_description=safe_read("README.md"),
-      packages=["scope"],
+      packages=["scopedevice"],
       test_suite="nose.collector",
       scripts=["script/RTOScope", "script/RTMScope"]
       )
