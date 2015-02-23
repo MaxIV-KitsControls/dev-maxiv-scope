@@ -15,7 +15,7 @@ def safe_read(fname):
 
 # Setup
 setup(name="tangods-scope",
-      version="2.4.4",
+      version="3.0.0",
       description="Device servers for the Rohde and Schwarz oscilloscopes.",
       author="Vincent Michel; Paul Bell",
       author_email="vincent.michel@maxlab.lu.se; paul.bell@maxlab.lu.se",
