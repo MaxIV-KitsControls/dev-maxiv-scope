@@ -338,12 +338,12 @@ class ScopeDevice(Device):
         # Standby state
         if self.get_state() == PyTango.DevState.STANDBY:
             self.set_status("Scope disconnected. "
-                            "Run the On command to connect.")
+                            "Run 'On' to connect.")
             return
         # Running state
         if self.get_state() == PyTango.DevState.RUNNING:
             self.set_status("Scope is acquiring. "
-                            "Run the Stop command to get back.")
+                            "Run 'Stop' to get back.")
             return
         # Fault state
         if self.get_state() == PyTango.DevState.FAULT:
