@@ -177,11 +177,11 @@ class ScopeDevice(Device):
 
     def prepare_acquisition(self):
         """Prepare the waveform acquisition."""
-        pass
+        self.scope.configure()
 
     def clean_acquisition(self):
         """Clean the waveform acquisition."""
-        pass
+        self.scope.configure()
 
     @property
     def connected(self):
@@ -715,7 +715,7 @@ class ScopeDevice(Device):
 
     def write_channel_scale(self, scale, channel):
         self.enqueue(self.scope.set_channel_scale, channel, scale)
-        self.enqueue(self.update_channel_position, channel)
+        self.enqueue(self.update_channel_scale, channel)
 
     def update_channel_scale(self, channel):
         scale = self.scope.get_channel_scale(channel)
