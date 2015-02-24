@@ -98,6 +98,7 @@ class ScopeDevice(Device):
         args = self.channel_enabled, string
         data = self.scope.parse_waveform_string(*args)
         self.update_waveforms_from_data(data)
+        self.update_time_base()
         # Push events
         self.push_waveform_events(stamp=stamp)
 
@@ -107,12 +108,12 @@ class ScopeDevice(Device):
         self.update_single_settings()
         for channel in self.channels:
             self.update_channel_settings(channel)
-        self.update_waveforms()
 
     def update_single_settings(self):
         """Update all the non-channel related settings."""
         self.update_time_range()
         self.update_time_position()
+        self.update_record_length()
         self.update_trigger_source()
         self.update_trigger_slope()
         self.update_trigger_level(5)
@@ -126,7 +127,7 @@ class ScopeDevice(Device):
         self.update_channel_enabled(channel)
 
     def update_waveforms(self):
-        """Update the waveforms."""
+        """Update the waveforms. Currently not used."""
         data = self.scope.get_waveform_data(self.channel_enabled)
         self.update_waveforms_from_data(data)
         self.update_time_base()
@@ -135,7 +136,9 @@ class ScopeDevice(Device):
     def update_waveforms_from_data(self, data):
         """Update the waveforms with the given raw data."""
         args = data, self.channel_scales, self.channel_positions
+        self.waveforms.clear()
         self.waveforms.update(self.scope.convert_waveforms(*args))
+        self.raw_waveforms.clear()
         self.raw_waveforms.update(self.scope.convert_waveforms(data))
 
     def update_time_base(self):
@@ -299,7 +302,7 @@ class ScopeDevice(Device):
                 # Waveform
                 name = self.waveform_names[channel]
                 data = self.waveforms[channel]
-                self.push_change_event(name, data)
+                self.push_change_event(name, data, stamp, valid)
                 # Raw waveforms
                 name = self.raw_waveform_names[channel]
                 data = self.raw_waveforms[channel]
@@ -413,6 +416,7 @@ class ScopeDevice(Device):
         self.time_scale = []
         self.time_position = 0.0
         self.time_range = 0.0
+        self.record_length = 0
         self.trigger_channel = 0
         self.trigger_slope = 0
         # Scope dict attributes
@@ -525,6 +529,7 @@ class ScopeDevice(Device):
 
     def update_time_range(self):
         self.time_range = self.scope.get_time_range()
+        self.update_time_base()
 
     # Time Position
 
@@ -547,12 +552,35 @@ class ScopeDevice(Device):
 
     def update_time_position(self):
         self.time_position = self.scope.get_time_position()
+        self.update_time_base()
+
+    # Record length
+
+    RecordLength = rw_attribute(
+        dtype=int,
+        label="Record length",
+        unit="point",
+        min_value=0,
+        max_value=10**8,
+        format="%d",
+        doc="Record length for the waveforms",
+    )
+
+    def read_RecordLength(self):
+        return self.record_length
+
+    def write_RecordLength(self, length):
+        self.enqueue(self.scope.set_record_length, length)
+        self.enqueue(self.update_record_length)
+
+    def update_record_length(self):
+        self.record_length = self.scope.get_record_length()
 
     # Time Base
 
     TimeBase = read_attribute(
         dtype=(float,),
-        max_dim_x=10000,
+        max_dim_x=10**8,
         label="Time base",
         unit="s",
         doc="Time base value table",
@@ -719,7 +747,7 @@ class ScopeDevice(Device):
         dtype=(float,),
         unit="V",
         format="%4.3f",
-        max_dim_x=10000,
+        max_dim_x=10**8,
         label="Waveform {0}".format(channel),
         doc="Waveform data for channel {0}".format(channel),
     )
@@ -745,7 +773,7 @@ class ScopeDevice(Device):
         dtype=(float,),
         unit="div",
         format="%4.3f",
-        max_dim_x=10000,
+        max_dim_x=10**8,
         label="Waveform {0}".format(channel),
         doc="Waveform data for channel {0}".format(channel),
     )
@@ -805,6 +833,10 @@ class ScopeDevice(Device):
     TriggerLevel4 = level_attribute(4)
     read_TriggerLevel4 = partial(read_level, channel=4)
     write_TriggerLevel4 = partial(write_level, channel=4)
+
+    TriggerLevel5 = level_attribute(5)
+    read_TriggerLevel5 = partial(read_level, channel=5)
+    write_TriggerLevel5 = partial(write_level, channel=5)
 
     # Trigger slope
 
@@ -968,3 +1000,15 @@ class RTMScope(ScopeDevice):
 
     # Library
     connection_class = RTMConnection
+
+    # Record length (read-only)
+    RecordLength = read_attribute(
+        dtype=int,
+        label="Record length",
+        unit="point",
+        min_value=0,
+        max_value=10**6,
+        format="%d",
+        doc="Record length for the waveforms",
+    )
+
