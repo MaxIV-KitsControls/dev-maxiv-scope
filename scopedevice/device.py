@@ -1,6 +1,7 @@
 """Provide the device classes for RTM and RTO Scope devices."""
 
 # Imports
+import sys
 import numpy
 import socket
 import operator
@@ -136,10 +137,9 @@ class ScopeDevice(Device):
     def update_waveforms_from_data(self, data):
         """Update the waveforms with the given raw data."""
         args = data, self.channel_scales, self.channel_positions
-        self.waveforms.clear()
-        self.waveforms.update(self.scope.convert_waveforms(*args))
-        self.raw_waveforms.clear()
-        self.raw_waveforms.update(self.scope.convert_waveforms(data))
+        cast = lambda dct: defaultdict(list, dct)
+        self.waveforms = cast(self.scope.convert_waveforms(*args))
+        self.raw_waveforms = cast(self.scope.convert_waveforms(data))
 
     def update_time_base(self):
         """Compute a new time base if necessary."""
@@ -318,7 +318,9 @@ class ScopeDevice(Device):
         if self.events:
             for name in self.waveform_names.values():
                 self.set_change_event(name, True, True)
-            self.set_change_event(self.time_base_name, True, False)
+            for name in self.raw_waveform_names.values():
+                self.set_change_event(name, True, True)
+            self.set_change_event(self.time_base_name, True, True)
 
 # ------------------------------------------------------------------
 #    Update methods
@@ -581,6 +583,7 @@ class ScopeDevice(Device):
     TimeBase = read_attribute(
         dtype=(float,),
         max_dim_x=10**8,
+        abs_change=sys.float_info.min,
         label="Time base",
         unit="s",
         doc="Time base value table",
@@ -748,6 +751,7 @@ class ScopeDevice(Device):
         unit="V",
         format="%4.3f",
         max_dim_x=10**8,
+        abs_change=sys.float_info.min,
         label="Waveform {0}".format(channel),
         doc="Waveform data for channel {0}".format(channel),
     )
@@ -774,6 +778,7 @@ class ScopeDevice(Device):
         unit="div",
         format="%4.3f",
         max_dim_x=10**8,
+        abs_change=sys.float_info.min,
         label="Waveform {0}".format(channel),
         doc="Waveform data for channel {0}".format(channel),
     )
