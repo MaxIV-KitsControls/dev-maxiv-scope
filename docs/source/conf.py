@@ -12,4 +12,4 @@ master_doc = 'index'
 # Data
 project = u'dev-maxiv-scope'
 copyright = u'2014, MAXIV'
-release = '0.1.0'
+release = '3.0.1'

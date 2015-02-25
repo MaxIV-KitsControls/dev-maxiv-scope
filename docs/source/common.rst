@@ -1,4 +1,4 @@
 Documentation for common module
 ===============================
 
-.. automodule:: scope.common
+.. automodule:: scopedevice.common

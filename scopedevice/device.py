@@ -473,7 +473,7 @@ class ScopeDevice(Device):
 
     Host = device_property(
         dtype=str,
-        doc="host name of the scope",
+        doc="Host name of the scope",
         )
 
 # ------------------------------------------------------------------
@@ -888,6 +888,7 @@ class ScopeDevice(Device):
 
     @command
     def Run(self):
+        """Run the acquisition. Available in ON state."""
         self.enqueue(self.prepare_acquisition)
         self.set_state(DevState.RUNNING)
 
@@ -898,6 +899,7 @@ class ScopeDevice(Device):
 
     @command
     def Stop(self):
+        """Stop the acquisition. Available in RUNNING state."""
         self.enqueue(self.clean_acquisition)
         self.set_state(DevState.ON)
         self.reset_flags()
@@ -909,6 +911,7 @@ class ScopeDevice(Device):
 
     @command
     def On(self):
+        """Connect to the scope. Available in STANDBY state."""
         self.enqueue(self.connect)
         self.set_state(DevState.ON)
         self.reset_flags()
@@ -920,6 +923,7 @@ class ScopeDevice(Device):
 
     @command
     def Standby(self):
+        """Disconnect from the scope. Available in STANDBY state."""
         self.enqueue(self.disconnect)
         self.set_state(DevState.STANDBY)
 
@@ -936,6 +940,7 @@ class ScopeDevice(Device):
         "else DONE if suceeds, else TIMEOUT"
     )
     def Execute(self, command):
+        """Execute a custom command. Available in ON and RUNNING state."""
         command = " ".join(command)
         # Check report queue
         if self.report_queue:
@@ -1007,8 +1012,7 @@ class RTMScope(ScopeDevice):
         label="Record length",
         unit="point",
         min_value=0,
-        max_value=10**6,
+        max_value=10**8,
         format="%d",
         doc="Record length for the waveforms",
     )
-
