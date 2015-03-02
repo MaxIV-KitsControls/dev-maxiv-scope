@@ -2,20 +2,33 @@
 
 # Imports
 import PyTango
+import functools
 import traceback
 from time import sleep
 from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
-from functools import wraps, partial as _partial
 
 
 # Patched version of partial
-def partial(*args, **kwargs):
-    res = _partial(*args, **kwargs)
-    res.__module__ = __name__
-    res.__name__ = "partial"
-    return res
+def partial(func, *args, **kwargs):
+    """Partial for tango attribute accessors"""
+    partial_object = functools.partial(func, *args, **kwargs)
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return partial_object(*args, **kwargs)
+    return wrapper
+
+
+# Patched version of tango attribute
+def attribute(*args, **kwargs):
+    """Patched version of tango attribute."""
+    fset = kwargs.pop("fset", None)
+    attr = PyTango.server.attribute(*args, **kwargs)
+    if fset:
+        return attr.setter(fset)
+    return attr
 
 
 # DeviceMeta metaclass
@@ -91,7 +104,7 @@ def safe_loop(handler_name):
     # Decorator
     def decorator(func):
         # Wrapper
-        @wraps(func)
+        @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             # Run method
             try:
@@ -114,15 +127,15 @@ class StopIO(Exception):
 
 
 # RW attribute
-rw_attribute = partial(
-    PyTango.server.attribute,
+rw_attribute = functools.partial(
+    attribute,
     access=PyTango.AttrWriteType.READ_WRITE,
     fisallowed="is_read_write_allowed",
     memorized=True,
 )
 
 # Read attribute
-read_attribute = partial(
-    PyTango.server.attribute,
+read_attribute = functools.partial(
+    attribute,
     fisallowed="is_read_allowed",
 )

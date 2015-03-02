@@ -20,9 +20,9 @@ debug_it = PyTango.DebugIt(True, True, True)
 from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
 
 # Common imports
-from scopedevice.common import DeviceMeta, StopIO, LockEvent
-from scopedevice.common import partial, read_attribute, rw_attribute
-from scopedevice.common import tick_context, safe_loop, safe_traceback
+from scopedevice.common import (read_attribute, rw_attribute,
+                                DeviceMeta, StopIO, LockEvent, partial,
+                                tick_context, safe_loop, safe_traceback)
 
 
 # Generic scope device
@@ -598,12 +598,6 @@ class ScopeDevice(Device):
 
     # Channel Enabled
 
-    channel_enabled_attribute = lambda channel: rw_attribute(
-        dtype=bool,
-        label="Channel enabled {0}".format(channel),
-        doc="Channel {0} status (enabled or disabled)".format(channel),
-    )
-
     def read_channel_enabled(self, channel):
         return self.channel_enabled[channel]
 
@@ -615,29 +609,22 @@ class ScopeDevice(Device):
         enabled = self.scope.get_channel_enabled(channel)
         self.channel_enabled[channel] = enabled
 
+    def channel_enabled_attribute(channel,
+                                  read=read_channel_enabled,
+                                  write=write_channel_enabled):
+        return rw_attribute(
+            dtype=bool,
+            label="Channel enabled {0}".format(channel),
+            doc="Channel {0} status (enabled or disabled)".format(channel),
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
     ChannelEnabled1 = channel_enabled_attribute(1)
-    read_ChannelEnabled1 = partial(read_channel_enabled, channel=1)
-    write_ChannelEnabled1 = partial(write_channel_enabled, channel=1)
-
     ChannelEnabled2 = channel_enabled_attribute(2)
-    read_ChannelEnabled2 = partial(read_channel_enabled, channel=2)
-    write_ChannelEnabled2 = partial(write_channel_enabled, channel=2)
-
     ChannelEnabled3 = channel_enabled_attribute(3)
-    read_ChannelEnabled3 = partial(read_channel_enabled, channel=3)
-    write_ChannelEnabled3 = partial(write_channel_enabled, channel=3)
-
     ChannelEnabled4 = channel_enabled_attribute(4)
-    read_ChannelEnabled4 = partial(read_channel_enabled, channel=4)
-    write_ChannelEnabled4 = partial(write_channel_enabled, channel=4)
 
     # Channel Coupling
-
-    channel_coupling_attribute = lambda channel: rw_attribute(
-        dtype=str,
-        label="Channel coupling {0}".format(channel),
-        doc="Coupling for channel {0}".format(channel),
-    )
 
     def read_channel_coupling(self, channel):
         return self.channel_coupling[channel]
@@ -650,31 +637,22 @@ class ScopeDevice(Device):
         position = self.scope.get_channel_coupling(channel)
         self.channel_coupling[channel] = position
 
+    def channel_coupling_attribute(channel,
+                                   read=read_channel_coupling,
+                                   write=write_channel_coupling):
+        return rw_attribute(
+            dtype=str,
+            label="Channel coupling {0}".format(channel),
+            doc="Coupling for channel {0}".format(channel),
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
     ChannelCoupling1 = channel_coupling_attribute(1)
-    read_ChannelCoupling1 = partial(read_channel_coupling, channel=1)
-    write_ChannelCoupling1 = partial(write_channel_coupling, channel=1)
-
     ChannelCoupling2 = channel_coupling_attribute(2)
-    read_ChannelCoupling2 = partial(read_channel_coupling, channel=2)
-    write_ChannelCoupling2 = partial(write_channel_coupling, channel=2)
-
     ChannelCoupling3 = channel_coupling_attribute(3)
-    read_ChannelCoupling3 = partial(read_channel_coupling, channel=3)
-    write_ChannelCoupling3 = partial(write_channel_coupling, channel=3)
-
     ChannelCoupling4 = channel_coupling_attribute(4)
-    read_ChannelCoupling4 = partial(read_channel_coupling, channel=4)
-    write_ChannelCoupling4 = partial(write_channel_coupling, channel=4)
 
     # Channel Position
-
-    channel_position_attribute = lambda channel: rw_attribute(
-        dtype=float,
-        unit="div",
-        format="%4.3f",
-        label="Channel position {0}".format(channel),
-        doc="Position for channel {0}".format(channel),
-    )
 
     def read_channel_position(self, channel):
         return self.channel_positions[channel]
@@ -687,31 +665,24 @@ class ScopeDevice(Device):
         position = self.scope.get_channel_position(channel)
         self.channel_positions[channel] = position
 
+    def channel_position_attribute(channel,
+                                   read=read_channel_position,
+                                   write=write_channel_position):
+        return rw_attribute(
+            dtype=float,
+            unit="div",
+            format="%4.3f",
+            label="Channel position {0}".format(channel),
+            doc="Position for channel {0}".format(channel),
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
     ChannelPosition1 = channel_position_attribute(1)
-    read_ChannelPosition1 = partial(read_channel_position, channel=1)
-    write_ChannelPosition1 = partial(write_channel_position, channel=1)
-
     ChannelPosition2 = channel_position_attribute(2)
-    read_ChannelPosition2 = partial(read_channel_position, channel=2)
-    write_ChannelPosition2 = partial(write_channel_position, channel=2)
-
     ChannelPosition3 = channel_position_attribute(3)
-    read_ChannelPosition3 = partial(read_channel_position, channel=3)
-    write_ChannelPosition3 = partial(write_channel_position, channel=3)
-
     ChannelPosition4 = channel_position_attribute(4)
-    read_ChannelPosition4 = partial(read_channel_position, channel=4)
-    write_ChannelPosition4 = partial(write_channel_position, channel=4)
 
     # Channel Scale
-
-    channel_scale_attribute = lambda channel: rw_attribute(
-        dtype=float,
-        unit="V/div",
-        format="%4.3f",
-        label="Channel scale {0}".format(channel),
-        doc="Scale for channel {0}".format(channel),
-    )
 
     def read_channel_scale(self, channel):
         return self.channel_scales[channel]
@@ -724,21 +695,22 @@ class ScopeDevice(Device):
         scale = self.scope.get_channel_scale(channel)
         self.channel_scales[channel] = scale
 
+    def channel_scale_attribute(channel,
+                                read=read_channel_scale,
+                                write=write_channel_scale):
+        return rw_attribute(
+            dtype=float,
+            unit="V/div",
+            format="%4.3f",
+            label="Channel scale {0}".format(channel),
+            doc="Scale for channel {0}".format(channel),
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
     ChannelScale1 = channel_scale_attribute(1)
-    read_ChannelScale1 = partial(read_channel_scale, channel=1)
-    write_ChannelScale1 = partial(write_channel_scale, channel=1)
-
     ChannelScale2 = channel_scale_attribute(2)
-    read_ChannelScale2 = partial(read_channel_scale, channel=2)
-    write_ChannelScale2 = partial(write_channel_scale, channel=2)
-
     ChannelScale3 = channel_scale_attribute(3)
-    read_ChannelScale3 = partial(read_channel_scale, channel=3)
-    write_ChannelScale3 = partial(write_channel_scale, channel=3)
-
     ChannelScale4 = channel_scale_attribute(4)
-    read_ChannelScale4 = partial(read_channel_scale, channel=4)
-    write_ChannelScale4 = partial(write_channel_scale, channel=4)
 
 # ------------------------------------------------------------------
 #    Waveforms attributes
@@ -746,57 +718,45 @@ class ScopeDevice(Device):
 
     # Waveforms
 
-    waveform_attribute = lambda channel: read_attribute(
-        dtype=(float,),
-        unit="V",
-        format="%4.3f",
-        max_dim_x=10**8,
-        abs_change=sys.float_info.min,
-        label="Waveform {0}".format(channel),
-        doc="Waveform data for channel {0}".format(channel),
-    )
-
     def read_waveform(self, channel):
         return self.waveforms[channel]
 
+    def waveform_attribute(channel, read=read_waveform):
+        return read_attribute(
+            dtype=(float,),
+            unit="V",
+            format="%4.3f",
+            max_dim_x=10**8,
+            abs_change=sys.float_info.min,
+            label="Waveform {0}".format(channel),
+            doc="Waveform data for channel {0}".format(channel),
+            fget=partial(read, channel=channel))
+
     Waveform1 = waveform_attribute(1)
-    read_Waveform1 = partial(read_waveform, channel=1)
-
     Waveform2 = waveform_attribute(2)
-    read_Waveform2 = partial(read_waveform, channel=2)
-
     Waveform3 = waveform_attribute(3)
-    read_Waveform3 = partial(read_waveform, channel=3)
-
     Waveform4 = waveform_attribute(4)
-    read_Waveform4 = partial(read_waveform, channel=4)
 
     # Raw waveforms
-
-    raw_waveform_attribute = lambda channel: read_attribute(
-        dtype=(float,),
-        unit="div",
-        format="%4.3f",
-        max_dim_x=10**8,
-        abs_change=sys.float_info.min,
-        label="Waveform {0}".format(channel),
-        doc="Waveform data for channel {0}".format(channel),
-    )
 
     def read_raw_waveform(self, channel):
         return self.raw_waveforms[channel]
 
+    def raw_waveform_attribute(channel, read=read_raw_waveform):
+        return read_attribute(
+            dtype=(float,),
+            unit="div",
+            format="%4.3f",
+            max_dim_x=10**8,
+            abs_change=sys.float_info.min,
+            label="Waveform {0}".format(channel),
+            doc="Waveform data for channel {0}".format(channel),
+            fget=partial(read, channel=channel))
+
     RawWaveform1 = raw_waveform_attribute(1)
-    read_RawWaveform1 = partial(read_raw_waveform, channel=1)
-
     RawWaveform2 = raw_waveform_attribute(2)
-    read_RawWaveform2 = partial(read_raw_waveform, channel=2)
-
     RawWaveform3 = raw_waveform_attribute(3)
-    read_RawWaveform3 = partial(read_raw_waveform, channel=3)
-
     RawWaveform4 = raw_waveform_attribute(4)
-    read_RawWaveform4 = partial(read_raw_waveform, channel=4)
 
 # ------------------------------------------------------------------
 #    Trigger attributes
@@ -804,18 +764,10 @@ class ScopeDevice(Device):
 
     # Trigger levels
 
-    level_attribute = lambda channel: rw_attribute(
-        dtype=float,
-        unit="V",
-        format="%4.3f",
-        label="Trigger level {0}".format(channel),
-        doc="Position for channel {0}".format(channel),
-    )
-
-    def read_level(self, channel):
+    def read_trigger_level(self, channel):
         return self.trigger_levels[channel]
 
-    def write_level(self, level, channel):
+    def write_trigger_level(self, level, channel):
         self.enqueue(self.scope.set_trigger_level, channel, level)
         self.enqueue(self.update_trigger_level, channel)
 
@@ -823,25 +775,23 @@ class ScopeDevice(Device):
         level = self.scope.get_trigger_level(channel)
         self.trigger_levels[channel] = level
 
+    def level_attribute(channel,
+                        read=read_trigger_level,
+                        write=write_trigger_level):
+        return rw_attribute(
+            dtype=float,
+            unit="V",
+            format="%4.3f",
+            label="Trigger level {0}".format(channel),
+            doc="Position for channel {0}".format(channel),
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
     TriggerLevel1 = level_attribute(1)
-    read_TriggerLevel1 = partial(read_level, channel=1)
-    write_TriggerLevel1 = partial(write_level, channel=1)
-
     TriggerLevel2 = level_attribute(2)
-    read_TriggerLevel2 = partial(read_level, channel=2)
-    write_TriggerLevel2 = partial(write_level, channel=2)
-
     TriggerLevel3 = level_attribute(3)
-    read_TriggerLevel3 = partial(read_level, channel=3)
-    write_TriggerLevel3 = partial(write_level, channel=3)
-
     TriggerLevel4 = level_attribute(4)
-    read_TriggerLevel4 = partial(read_level, channel=4)
-    write_TriggerLevel4 = partial(write_level, channel=4)
-
     TriggerLevel5 = level_attribute(5)
-    read_TriggerLevel5 = partial(read_level, channel=5)
-    write_TriggerLevel5 = partial(write_level, channel=5)
 
     # Trigger slope
 
