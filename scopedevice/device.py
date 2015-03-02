@@ -40,13 +40,14 @@ class ScopeDevice(Device):
     connection_class = None
 
     # Settings
-    update_timeout = 3.0      # Up-to-date limit for the device (informative)
-    callback_timeout = 0.5    # Communication timeout set in the scope
-    connection_timeout = 2.0  # Communication timeout set in the socket
-    instrument_timeout = 5.0  # Communication timeout set in the library
-    command_timeout = 2.0     # Timeout on the expert command ExecCommand
-    minimal_period = 0.002    # Limit the acquiring loop frequency
-    events = True             # Use Tango change events
+    update_timeout = 3.0        # Up-to-date limit for the device (informative)
+    callback_timeout = 0.5      # Communication timeout set in the scope
+    connection_timeout = 2.0    # Communication timeout set in the socket
+    instrument_timeout = 5.0    # Communication timeout set in the library
+    command_timeout = 2.0       # Timeout on the expert command ExecCommand
+    update_period = 0.1         # Limit the loop frequency while updating
+    acquisition_period = 0.002  # Limit loop frequency when acquiring
+    events = True               # Use Tango change events
 
 # ------------------------------------------------------------------
 #    Thread methods
@@ -67,15 +68,20 @@ class ScopeDevice(Device):
                 self.disconnect()
             # Break the loop
             return True
+        # Get state
+        state = self.get_state()
+        updating = (state == DevState.ON)
+        acquiring = (state == DevState.RUNNING)
+        period = (self.update_period, self.acquisition_period)[acquiring]
         # Control loop time
-        with tick_context(self.minimal_period):
+        with tick_context(period):
             # Update and acquisitions
             try:
                 # Update values
-                if self.connected and self.get_state() == DevState.ON:
+                if self.connected and updating:
                     self.update_all()
                 # Acquire waveforms
-                if self.connected and self.get_state() == DevState.RUNNING:
+                if self.connected and acquiring:
                     self.acquire_waveforms()
             # Handle exceptions
             except Exception as exc:
