@@ -40,10 +40,10 @@ class ScopeDevice(Device):
     connection_class = None
 
     # Settings
-    update_timeout = 3.0        # Up-to-date limit for the device (informative)
+    update_timeout = 2.0        # Up-to-date limit for the device (informative)
     callback_timeout = 0.5      # Communication timeout set in the scope
     connection_timeout = 2.0    # Communication timeout set in the socket
-    instrument_timeout = 5.0    # Communication timeout set in the library
+    instrument_timeout = 2.0    # Communication timeout set in the library
     command_timeout = 2.0       # Timeout on the expert command ExecCommand
     update_period = 0.1         # Limit the loop frequency while updating
     acquisition_period = 0.002  # Limit loop frequency when acquiring
@@ -166,6 +166,7 @@ class ScopeDevice(Device):
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
         item = self.scope.stamp_acquisition(self.channel_enabled)
+        self.reset_flags()
         self.decoding_queue.put(item)
 
 # ------------------------------------------------------------------
@@ -228,6 +229,10 @@ class ScopeDevice(Device):
             return
         # Explicit instrument timeout
         if isinstance(exc, Vxi11Exception) and exc.err == 15:
+            # Ignore when waiting for a trigger
+            if exc.note == "wait":
+                self.warn_stream(safe_traceback())
+                return
             # Ignore the first one
             if not self.warning:
                 self.warning = True
@@ -350,8 +355,10 @@ class ScopeDevice(Device):
             return
         # Running state
         if self.get_state() == PyTango.DevState.RUNNING:
-            self.set_status("Scope is acquiring. "
-                            "Run 'Stop' to get back.")
+            status = self.get_update_string()
+            if not status:
+                status = "Scope is acquiring. Run 'Stop' to get back."
+            self.set_status(status)
             return
         # Fault state
         if self.get_state() == PyTango.DevState.FAULT:
@@ -361,14 +368,20 @@ class ScopeDevice(Device):
             self.set_status(string)
             return
         # On state
-        default_status = "No status available."
-        status_string = self.status if self.status else default_status
+        status = self.get_update_string()
+        if not status:
+            default_status = "No status available."
+            status = self.status if self.status else default_status
+            status += " Up-to-date."
+        self.set_status(status)
+
+    def get_update_string(self,):
         delta = time() - self.stamp
-        if delta > self.update_timeout:
-            update_string = "Last update {0:.2f} seconds ago.".format(delta)
-        else:
-            update_string = "Up-to-date."
-        self.set_status(status_string + ' ' + update_string)
+        if delta < self.update_timeout:
+            return ""
+        running = (self.get_state() == DevState.RUNNING)
+        string = ("No update", "No trigger detected")[running]
+        return string + " in the last {0:.2f} seconds.".format(delta)
 
     def update_state(self):
         """Update the state from connection status, errors and timeout."""
@@ -966,6 +979,18 @@ class RTMScope(ScopeDevice):
 
     # Library
     connection_class = RTMConnection
+
+    # Prepare acquisition
+    def prepare_acquisition(self):
+        """Prepare the acquisition."""
+        ScopeDevice.prepare_acquisition(self)
+        self.scope.issue_run()
+
+    # Clean acquisition
+    def clean_acquisition(self):
+        """Clean the acquisition."""
+        ScopeDevice.clean_acquisition(self)
+        self.scope.issue_stop()
 
     # Record length (read-only)
     RecordLength = read_attribute(
