@@ -177,6 +177,7 @@ class ScopeDevice(Device):
         """Connect to the instrument."""
         self.scope.connect()
         self.update_identifier()
+        self.set_state(DevState.ON)
 
     def disconnect(self):
         """Disconnect from the intrument."""
@@ -217,7 +218,6 @@ class ScopeDevice(Device):
 
     def reset_flags(self):
         """Reset the flags that check the status of the scope."""
-        self.warning = False
         self.stamp = time()
 
     @debug_it
@@ -233,15 +233,9 @@ class ScopeDevice(Device):
             if exc.note == "wait":
                 self.warn_stream(safe_traceback())
                 return
-            # Ignore the first one
-            if not self.warning:
-                self.warning = True
-                self.warn_stream(safe_traceback())
-                return
-            # Report when two in a row
-            exc = "instrument is connected but not responding."
-            exc += "\nTwo consecutive instrument timeouts"
-            exc += " (2 x {0:3.1f} s)".format(self.instrument_timeout)
+            # Report
+            exc = "instrument is connected but not responding"
+            exc += " ({0:3.1f} s)".format(self.instrument_timeout)
         # Explicit connection timeout
         elif isinstance(exc, socket.timeout):
             exc = "connection timeout"
@@ -428,7 +422,6 @@ class ScopeDevice(Device):
         self.waiting = False
         # Misc. attributes
         self.linspace_args = None
-        self.warning = False
         self.stamp = time()
         self.error = ""
         # Scope scalar attributes
@@ -438,16 +431,17 @@ class ScopeDevice(Device):
         self.time_position = 0.0
         self.time_range = 0.0
         self.record_length = 0
-        self.trigger_channel = 0
-        self.trigger_slope = 0
+        self.trigger_channel = None
+        self.trigger_slope = None
         # Scope dict attributes
+        none = lambda: None
         self.waveforms = defaultdict(list)
         self.raw_waveforms = defaultdict(list)
-        self.channel_coupling = defaultdict(str)
-        self.channel_positions = defaultdict(float)
-        self.channel_scales = defaultdict(float)
-        self.trigger_levels = defaultdict(int)
-        self.channel_enabled = defaultdict(bool)
+        self.channel_coupling = defaultdict(none)
+        self.channel_positions = defaultdict(none)
+        self.channel_scales = defaultdict(none)
+        self.trigger_levels = defaultdict(none)
+        self.channel_enabled = defaultdict(none)
         # Instanciate scope
         callback_ms = int(self.callback_timeout * 1000)
         connection_ms = int(self.connection_timeout * 1000)
@@ -887,8 +881,8 @@ class ScopeDevice(Device):
     def On(self):
         """Connect to the scope. Available in STANDBY state."""
         self.enqueue(self.connect)
-        self.set_state(DevState.ON)
         self.reset_flags()
+        self.awake.set()
 
     def is_On_allowed(self):
         return self.get_state() == DevState.STANDBY
@@ -929,7 +923,7 @@ class ScopeDevice(Device):
         start = time()
         while time() - start < self.command_timeout:
             # Apply a minimal period
-            with tick_context(self.minimal_period):
+            with tick_context(self.update_period):
                 # Try to get the report
                 try:
                     result = self.report_queue.pop()
