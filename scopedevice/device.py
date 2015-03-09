@@ -123,6 +123,7 @@ class ScopeDevice(Device):
         self.update_record_length()
         self.update_trigger_source()
         self.update_trigger_slope()
+        self.update_trigger_coupling()
         self.update_trigger_level(5)
 
     def update_channel_settings(self, channel):
@@ -230,8 +231,9 @@ class ScopeDevice(Device):
         # Explicit instrument timeout
         if isinstance(exc, Vxi11Exception) and exc.err == 15:
             # Ignore when waiting for a trigger
-            if exc.note == "wait":
+            if self.get_state() == DevState.RUNNING:
                 self.warn_stream(safe_traceback())
+                self.enqueue(self.scope.get_status)
                 return
             # Report
             exc = "instrument is connected but not responding"
@@ -396,16 +398,11 @@ class ScopeDevice(Device):
 #    Initialization methods
 # ------------------------------------------------------------------
 
-    def __init__(self, cl, name):
-        """Initialize the device and manage events."""
-        PyTango.Device_4Impl.__init__(self, cl, name)
-        self.setup_events()
-        self.init_device()
-
     @debug_it
     def init_device(self):
         """Initialize instance attributes and start the thread."""
         # Initialize device
+        self.setup_events()
         self.get_device_properties()
         self.set_state(PyTango.DevState.INIT)
         # Scope thread attribute
@@ -431,6 +428,7 @@ class ScopeDevice(Device):
         self.time_position = 0.0
         self.time_range = 0.0
         self.record_length = 0
+        self.trigger_coupling = None
         self.trigger_channel = None
         self.trigger_slope = None
         # Scope dict attributes
@@ -473,6 +471,7 @@ class ScopeDevice(Device):
         self.alive = False
         self.awake.set()
         timeout = self.connection_timeout + self.callback_timeout
+        self.debug_stream("Joining the reading thread...")
         self.scope_thread.join(timeout)
         if self.scope_thread.is_alive():
             self.error_stream("Cannot join the reading thread")
@@ -480,6 +479,7 @@ class ScopeDevice(Device):
     def stop_decoding_thread(self):
         """Stop the decoding thread."""
         self.decoding_queue.put(None)
+        self.debug_stream("Joining the decoding thread...")
         self.decoding_thread.join()
 
 # ------------------------------------------------------------------
@@ -647,16 +647,18 @@ class ScopeDevice(Device):
         self.enqueue(self.update_channel_coupling, channel)
 
     def update_channel_coupling(self, channel):
-        position = self.scope.get_channel_coupling(channel)
-        self.channel_coupling[channel] = position
+        coupling = self.scope.get_channel_coupling(channel)
+        self.channel_coupling[channel] = coupling
 
     def channel_coupling_attribute(channel,
                                    read=read_channel_coupling,
                                    write=write_channel_coupling):
         return rw_attribute(
-            dtype=str,
+            dtype=int,
+            min_value=0,
+            max_value=3,
             label="Channel coupling {0}".format(channel),
-            doc="Coupling for channel {0}".format(channel),
+            doc="0 for DC, 1 for AC, 2 for DCLimit, 3 for ACLimit",
             fget=partial(read, channel=channel),
             fset=partial(write, channel=channel))
 
@@ -848,6 +850,26 @@ class ScopeDevice(Device):
     def update_trigger_source(self):
         self.trigger_source = self.scope.get_trigger_source()
 
+    # Trigger Coupling
+
+    TriggerCoupling = rw_attribute(
+        dtype=int,
+        min_value=0,
+        max_value=2,
+        label="Trigger coupling",
+        doc="0 for DC, 1 for AC, 2 for HF",
+    )
+
+    def read_TriggerCoupling(self):
+        return self.trigger_coupling
+
+    def write_TriggerCoupling(self, coupling):
+        self.enqueue(self.scope.set_trigger_coupling, coupling)
+        self.enqueue(self.update_trigger_coupling)
+
+    def update_trigger_coupling(self):
+        self.trigger_coupling = self.scope.get_trigger_coupling()
+
 # ------------------------------------------------------------------
 #    Commands
 # ------------------------------------------------------------------
@@ -964,6 +986,34 @@ class RTOScope(ScopeDevice):
         """Clean the acquisition."""
         ScopeDevice.clean_acquisition(self)
         self.scope.set_display(True)
+
+    # Channel couling
+    def channel_coupling_attribute(channel,
+                                   read=ScopeDevice.read_channel_coupling,
+                                   write=ScopeDevice.write_channel_coupling):
+        return rw_attribute(
+            dtype=int,
+            min_value=0,
+            max_value=2,
+            label="Channel coupling {0}".format(channel),
+            doc="0 for DC, 1 for AC, 2 for DCLimit",
+            fget=partial(read, channel=channel),
+            fset=partial(write, channel=channel))
+
+    ChannelCoupling1 = channel_coupling_attribute(1)
+    ChannelCoupling2 = channel_coupling_attribute(2)
+    ChannelCoupling3 = channel_coupling_attribute(3)
+    ChannelCoupling4 = channel_coupling_attribute(4)
+
+    # Trigger coupling
+
+    TriggerCoupling = rw_attribute(
+        dtype=int,
+        min_value=0,
+        max_value=2,
+        label="Trigger coupling",
+        doc="0 for DC, 1 for AC, 2 for DCLimit",
+    )
 
 
 # Generic scope device
