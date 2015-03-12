@@ -50,7 +50,9 @@ def DeviceMeta(name, bases, attrs):
         dct.update(getattr(base, save_key, {}))
     dct.update(attrs)
     # Create device
-    return PyTango.server.DeviceMeta(name, bases, dct)
+    cls = PyTango.server.DeviceMeta(name, bases, dct)
+    cls.TangoClassName = name
+    return cls
 
 
 # Lock Event
