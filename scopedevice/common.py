@@ -49,7 +49,7 @@ def DeviceMeta(name, bases, attrs):
     for base in reversed(bases):
         dct.update(getattr(base, save_key, {}))
     dct.update(attrs)
-    # Create device
+    # Create device class
     cls = PyTango.server.DeviceMeta(name, bases, dct)
     cls.TangoClassName = name
     return cls
