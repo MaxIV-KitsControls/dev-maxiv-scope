@@ -1,9 +1,11 @@
 """Common functions for the scope devices."""
 
 # Imports
+import weakref
 import PyTango
 import functools
 import traceback
+import collections
 from time import sleep
 from contextlib import contextmanager
 from timeit import default_timer as time
@@ -141,3 +143,42 @@ read_attribute = functools.partial(
     attribute,
     fisallowed="is_read_allowed",
 )
+
+
+# Periodic method logger
+def debug_periodic_method(stream=None, track=10):
+    """Return a decorator to log information
+    about a periodicaly called method.
+    """
+    cache = weakref.WeakKeyDictionary()
+
+    def decorator(func):
+        """Decorator to log information about a periodicaly called method."""
+        func_name = func.__name__
+
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Get debug stream
+            logger = getattr(self, stream) if stream else lambda msg: None
+            # Get stamps
+            stamps = cache.setdefault(self, collections.deque(maxlen=track))
+            now = time()
+            # Log last call
+            if stamps:
+                msg = "Calling {0} (last call {1:1.3f} s ago)"
+                logger(msg.format(func_name, now - stamps[-1]))
+            # Call original method
+            value = func(self, *args, **kwargs)
+            # Log last
+            msg = "{0} ran in {1:1.3f} seconds"
+            logger(msg.format(func_name, time() - now))
+            # Save stamps
+            stamps.append(now)
+            # Log last calls
+            if len(stamps) > 1:
+                msg = "{0} ran {1} times in the last {2:1.3f} seconds"
+                logger(msg.format(func_name, len(stamps), time() - stamps[0]))
+            # Return
+            return value
+        return wrapper
+    return decorator

@@ -22,7 +22,8 @@ from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
 # Common imports
 from scopedevice.common import (read_attribute, rw_attribute,
                                 DeviceMeta, StopIO, LockEvent, partial,
-                                tick_context, safe_loop, safe_traceback)
+                                tick_context, safe_loop, safe_traceback,
+                                debug_periodic_method)
 
 
 # Generic scope device
@@ -35,6 +36,7 @@ class ScopeDevice(Device):
     time_base_name = "TimeBase"
     waveform_names = dict((i, "Waveform" + str(i)) for i in channels)
     raw_waveform_names = dict((i, "RawWaveform" + str(i)) for i in channels)
+    busy_wait = True
 
     # Library
     connection_class = None
@@ -45,8 +47,8 @@ class ScopeDevice(Device):
     connection_timeout = 2.0    # Communication timeout set in the socket
     instrument_timeout = 2.0    # Communication timeout set in the library
     command_timeout = 2.0       # Timeout on the expert command ExecCommand
-    update_period = 0.1         # Limit the loop frequency while updating
-    acquisition_period = 0.002  # Limit loop frequency when acquiring
+    update_period = 0.2         # Limit the loop frequency while updating
+    acquisition_period = 0.005  # Limit loop frequency when acquiring
     events = True               # Use Tango change events
 
 # ------------------------------------------------------------------
@@ -109,6 +111,7 @@ class ScopeDevice(Device):
         # Push events
         self.push_waveform_events(stamp=stamp)
 
+    @debug_periodic_method("debug_stream")
     def update_all(self):
         """Update all values."""
         self.update_scope_status()
@@ -164,9 +167,11 @@ class ScopeDevice(Device):
         # Update args attribute
         self.linspace_args = args
 
+    @debug_periodic_method("debug_stream")
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
-        item = self.scope.stamp_acquisition(self.channel_enabled)
+        item = self.scope.stamp_acquisition(self.channel_enabled,
+                                            busy=self.busy_wait)
         self.reset_flags()
         self.decoding_queue.put(item)
 
@@ -231,7 +236,7 @@ class ScopeDevice(Device):
         # Explicit instrument timeout
         if isinstance(exc, Vxi11Exception) and exc.err == 15:
             # Ignore when waiting for a trigger
-            if self.get_state() == DevState.RUNNING:
+            if self.get_state() == DevState.RUNNING or exc.note == "wait":
                 self.warn_stream(safe_traceback())
                 self.enqueue(self.scope.get_status)
                 return
@@ -1014,6 +1019,22 @@ class RTOScope(ScopeDevice):
         doc="0 for DC, 1 for AC, 2 for DCLimit",
     )
 
+    # Expert attribute for busy wait
+
+    BusyWait = rw_attribute(
+        dtype=bool,
+        format="%1d",
+        label="Busy wait",
+        display_level=PyTango.DispLevel.EXPERT,
+        doc="Use busy wait for acquiring (safer)",
+    )
+
+    def read_BusyWait(self):
+        return self.busy_wait
+
+    def write_BusyWait(self, boolean):
+        self.busy_wait = boolean
+
 
 # Generic scope device
 class RTMScope(ScopeDevice):
@@ -1039,8 +1060,8 @@ class RTMScope(ScopeDevice):
     def handle_exception(self, exc):
         """"Handle a given exception"""
         if isinstance(exc, EOFError):
+            self.warn_stream(safe_traceback())
             self.error_stream("Ignoring an end-of-file error...")
-            self.debug_stream(safe_traceback())
             return
         return ScopeDevice.handle_exception(self, exc)
 
