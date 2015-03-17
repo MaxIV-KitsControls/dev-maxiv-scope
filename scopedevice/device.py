@@ -197,6 +197,12 @@ class ScopeDevice(Device):
         """Clean the waveform acquisition."""
         self.scope.configure()
 
+    def check_connection(self):
+        """Check the scope connection"""
+        if not self.connected:
+            return False
+        self.scope.get_status()
+
     @property
     def connected(self):
         """Status of the connection."""
@@ -238,7 +244,7 @@ class ScopeDevice(Device):
             # Ignore when waiting for a trigger
             if self.get_state() == DevState.RUNNING or exc.note == "wait":
                 self.warn_stream(safe_traceback())
-                self.enqueue(self.scope.get_status)
+                self.enqueue(self.check_connection)
                 return
             # Report
             exc = "instrument is connected but not responding"
