@@ -346,14 +346,13 @@ class ScopeDevice(Device):
             return
         # Standby state
         if self.get_state() == PyTango.DevState.STANDBY:
-            self.set_status("Scope disconnected. "
-                            "Run 'On' to connect.")
+            self.set_status("Scope disconnected.")
             return
         # Running state
         if self.get_state() == PyTango.DevState.RUNNING:
             status = self.get_update_string()
             if not status:
-                status = "Scope is acquiring. Run 'Stop' to get back."
+                status = "Scope is acquiring."
             self.set_status(status)
             return
         # Fault state
@@ -1035,6 +1034,15 @@ class RTMScope(ScopeDevice):
         """Clean the acquisition."""
         ScopeDevice.clean_acquisition(self)
         self.scope.issue_stop()
+
+    # Catch EOFError
+    def handle_exception(self, exc):
+        """"Handle a given exception"""
+        if isinstance(exc, EOFError):
+            self.error_stream("Ignoring an end-of-file error...")
+            self.debug_stream(safe_traceback())
+            return
+        return ScopeDevice.handle_exception(self, exc)
 
     # Record length (read-only)
     RecordLength = read_attribute(
