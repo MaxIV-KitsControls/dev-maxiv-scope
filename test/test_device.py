@@ -76,7 +76,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
         cls.instrument.connected.__get__ = is_connected
         # Set up
         scopedevice.ScopeDevice.events = False
-        scopedevice.ScopeDevice.minimal_period = READ
+        scopedevice.ScopeDevice.acquisition_period = READ
+        scopedevice.ScopeDevice.update_period = READ
         cls.instrument.get_status.return_value = "Some status."
         cls.instrument.get_identifier.return_value = "Some ID"
         cls.instrument.get_time_position.return_value = 0
@@ -97,7 +98,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
         callback = self.connection.call_args[1].get("callback")
         self.connection.assert_called_with(host='1.2.3.4',
                                            connection_timeout=2000,
-                                           instrument_timeout=5000,
+                                           instrument_timeout=2000,
                                            callback_timeout=500,
                                            callback=callback)
 
@@ -106,7 +107,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
                                "get_channel_enabled", "set_channel_enabled")
 
     def test_coupling(self):
-        self.attribute_pattern("ChannelCoupling", ["AC", "DC"],
+        self.attribute_pattern("ChannelCoupling", [0, 1],
                                "get_channel_coupling", "set_channel_coupling")
 
     def test_position(self):
