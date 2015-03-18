@@ -997,6 +997,18 @@ class RTOScope(ScopeDevice):
         ScopeDevice.clean_acquisition(self)
         self.scope.set_display(True)
 
+    # Turn on the display
+    def delete_device(self):
+        """Turn on the display and stop the threads."""
+        try:
+            if self.connected:
+                self.scope.set_display(True)
+        except Exception as exc:
+            msg = "Error while turning the display on: {0}"
+            self.debug_stream(safe_traceback())
+            self.error_stream(msg.format(exc))
+        return ScopeDevice.delete_device(self)
+
     # Channel couling
     def channel_coupling_attribute(channel,
                                    read=ScopeDevice.read_channel_coupling,
