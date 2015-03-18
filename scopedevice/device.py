@@ -363,7 +363,7 @@ class ScopeDevice(Device):
         if self.get_state() == PyTango.DevState.RUNNING:
             status = self.get_update_string()
             if not status:
-                status = "Scope is acquiring."
+                status = "Scope is acquiring..."
             self.set_status(status)
             return
         # Fault state
