@@ -1,6 +1,7 @@
 """Common functions for the scope devices."""
 
 # Imports
+import sys
 import weakref
 import PyTango
 import functools
@@ -27,6 +28,8 @@ def partial(func, *args, **kwargs):
 def attribute(*args, **kwargs):
     """Patched version of tango attribute."""
     fset = kwargs.pop("fset", None)
+    if kwargs["dtype"] in (str, bool):
+        kwargs.pop("abs_change", None)
     attr = PyTango.server.attribute(*args, **kwargs)
     if fset:
         return attr.setter(fset)
@@ -135,6 +138,7 @@ rw_attribute = functools.partial(
     attribute,
     access=PyTango.AttrWriteType.READ_WRITE,
     fisallowed="is_read_write_allowed",
+    abs_change=sys.float_info.min,
     memorized=True,
 )
 
@@ -142,6 +146,7 @@ rw_attribute = functools.partial(
 read_attribute = functools.partial(
     attribute,
     fisallowed="is_read_allowed",
+    abs_change=sys.float_info.min,
 )
 
 
