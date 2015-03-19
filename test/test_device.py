@@ -75,7 +75,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
         is_connected = lambda *args: cls.instrument.connect.called
         cls.instrument.connected.__get__ = is_connected
         # Set up
-        scopedevice.ScopeDevice.events = False
+        scopedevice.ScopeDevice.waveform_events = False
+        scopedevice.ScopeDevice.settings_events = False
         scopedevice.ScopeDevice.acquisition_period = READ
         scopedevice.ScopeDevice.update_period = READ
         cls.instrument.get_status.return_value = "Some status."
