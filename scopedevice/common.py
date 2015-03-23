@@ -1,17 +1,20 @@
 """Common functions for the scope devices."""
 
 # Imports
-import sys
 import weakref
 import PyTango
 import functools
 import traceback
 import collections
 from time import sleep
+from PyTango import AttrQuality
 from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
+from collections import Mapping, namedtuple
 
+# Stamped tuple
+stamped = namedtuple("stamped", ("value", "stamp"))
 
 # Patched version of partial
 def partial(func, *args, **kwargs):
@@ -138,7 +141,6 @@ rw_attribute = functools.partial(
     attribute,
     access=PyTango.AttrWriteType.READ_WRITE,
     fisallowed="is_read_write_allowed",
-    abs_change=sys.float_info.min,
     memorized=True,
 )
 
@@ -146,7 +148,6 @@ rw_attribute = functools.partial(
 read_attribute = functools.partial(
     attribute,
     fisallowed="is_read_allowed",
-    abs_change=sys.float_info.min,
 )
 
 
@@ -187,3 +188,128 @@ def debug_periodic_method(stream=None, track=10):
             return value
         return wrapper
     return decorator
+
+
+# Event property
+def event_property(attribute, default=None, invalid=None,
+                   is_allowed=None, event=True, dtype=None, doc=None):
+    """Return a property that pushes change events automatically."""
+    is_allowed = is_allowed or getattr(attribute, "is_allowed_name", "")
+
+    # Helper
+
+    def get_attribute_name():
+        try:
+            return attribute.attr_name
+        except AttributeError:
+            return attribute
+
+    def get_private_name():
+        return "__" + get_attribute_name()
+
+    # Descriptor methods
+
+    def getter(device, is_allowed=is_allowed):
+        if is_allowed and isinstance(is_allowed, basestring):
+            is_allowed = getattr(device, is_allowed)
+        if is_allowed and not is_allowed(None):
+            set_value(device, invalid)
+        return get_value(device)
+
+    def setter(device, value, is_allowed=is_allowed):
+        if is_allowed and isinstance(is_allowed, basestring):
+            is_allowed = getattr(device, is_allowed)
+        if is_allowed and not is_allowed(None):
+            value = invalid
+        set_value(device, value)
+
+    def deleter(device):
+        del_value(device)
+
+    # Private attribute access
+
+    def get_value(device):
+        try:
+            return getattr(device, get_private_name())
+        except AttributeError:
+            set_value(device, default)
+            return default
+
+    def set_value(device, value, event=event):
+        try:
+            value, stamp = value.value, value.stamp
+        except AttributeError:
+            stamp = None
+        try:
+            diff = (getattr(device, get_private_name()) == value)
+            if diff:
+                return
+        except ValueError:
+            if diff.all():
+                return
+        except AttributeError:
+            pass
+        setattr(device, get_private_name(), value)
+        if event and isinstance(event, basestring):
+            event = getattr(device, event)
+        if event:
+            push_event(device, value, stamp)
+
+    def del_value(device):
+        try:
+            return delattr(device, get_private_name())
+        except AttributeError:
+            pass
+
+    # Event method
+
+    def push_event(device, value, dtype=dtype, stamp=None):
+        attr = getattr(device, get_attribute_name())
+        if not attr.is_change_event():
+            attr.set_change_event(True, False)
+        if not dtype and attr.get_data_type() == PyTango.DevString:
+            dtype = str
+        elif not dtype and attr.get_max_dim_x() > 1:
+            dtype = list
+        elif not dtype:
+            dtype = int
+        if not stamp:
+            stamp = time()
+            value == invalid
+        if value == invalid:
+            validity = AttrQuality.ATTR_INVALID
+            value = dtype()
+        else:
+            validity = AttrQuality.ATTR_VALID
+        device.push_change_event(get_attribute_name(), value, stamp, validity)
+
+    # Build property
+    return property(getter, setter, deleter, doc=doc)
+
+
+class mapping(Mapping):
+    """Mapping object to gather python attributes."""
+
+    def __init__(self, instance, base, keys, default=None):
+        self.base = base
+        self.keys = keys
+        self.default = default
+        self.instance = instance
+        for key in keys:
+            self[key] = default
+
+    def __getitem__(self, key):
+        if key not in self.keys:
+            raise KeyError(key)
+        return getattr(self.instance, self.base + str(key))
+
+    def __setitem__(self, key, value):
+        if key not in self.keys:
+            raise KeyError(key)
+        return setattr(self.instance, self.base + str(key), value)
+
+    def __iter__(self):
+        return iter(self.keys)
+
+    def __len__(self):
+        return len(self.keys)

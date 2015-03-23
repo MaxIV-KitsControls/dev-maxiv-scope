@@ -7,11 +7,11 @@ import operator
 from Queue import Queue
 from threading import Thread
 from timeit import default_timer as time
-from collections import deque, defaultdict
+from collections import deque
 
 # PyTango imports
 import PyTango
-from PyTango import DevState, AttrQuality
+from PyTango import DevState
 from PyTango.server import Device, device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
@@ -19,10 +19,11 @@ debug_it = PyTango.DebugIt(True, True, True)
 from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
 
 # Common imports
-from scopedevice.common import (read_attribute, rw_attribute,
+from scopedevice.common import (read_attribute, rw_attribute, mapping,
                                 DeviceMeta, StopIO, LockEvent, partial,
                                 tick_context, safe_loop, safe_traceback,
-                                debug_periodic_method)
+                                debug_periodic_method, event_property,
+                                stamped)
 
 
 # Generic scope device
@@ -48,11 +49,9 @@ class ScopeDevice(Device):
     command_timeout = 2.0       # Timeout on the expert command ExecCommand
     update_period = 0.2         # Limit the loop frequency while updating
     acquisition_period = 0.005  # Limit loop frequency when acquiring
-    waveform_events = True      # Use Tango change events for waveforms
-    settings_events = True      # Use Tango change events for scope settings
+    events = True               # Use Tango change events for waveforms
 
-    # Store the scope settings attributes
-    settings_attributes = []
+    event_property = partial(event_property, event="events")
 
 # ------------------------------------------------------------------
 #    Thread methods
@@ -109,10 +108,8 @@ class ScopeDevice(Device):
         # Decode waveforms
         args = self.channel_enabled, string
         data = self.scope.parse_waveform_string(*args)
-        self.update_waveforms_from_data(data)
-        self.update_time_base()
-        # Push events
-        self.push_waveform_events(stamp=stamp)
+        self.update_waveforms_from_data(data, stamp=stamp)
+        self.update_time_base(stamp=stamp)
 
     @debug_periodic_method("debug_stream")
     def update_all(self):
@@ -145,28 +142,32 @@ class ScopeDevice(Device):
         data = self.scope.get_waveform_data(self.channel_enabled)
         self.update_waveforms_from_data(data)
         self.update_time_base()
-        self.push_waveform_events()
 
-    def update_waveforms_from_data(self, data):
+    def update_waveforms_from_data(self, data, stamp=None):
         """Update the waveforms with the given raw data."""
         args = data, self.channel_scales, self.channel_positions
-        cast = lambda dct: defaultdict(list, dct)
-        self.waveforms = cast(self.scope.convert_waveforms(*args))
-        self.raw_waveforms = cast(self.scope.convert_waveforms(data))
+        waveforms = self.scope.convert_waveforms(*args)
+        raw_waveforms = self.scope.convert_waveforms(data)
+        for channel in self.channels:
+            waveform = waveforms.get(channel, [])
+            raw_waveform = raw_waveforms.get(channel, [])
+            self.waveforms[channel] = stamped(waveform, stamp)
+            self.raw_waveforms[channel] = stamped(raw_waveform, stamp)
 
-    def update_time_base(self):
+    def update_time_base(self, stamp=None):
         """Compute a new time base if necessary."""
         # Get length
-        gen = (len(data) for data in self.waveforms.values() if len(data))
+        gen = (len(data) for data in self.waveforms.values()
+               if data is not None and len(data))
         length = next(gen, 0)
         # Get boundaries
-        mean, half = self.time_position, self.time_range/2
+        mean = self.time_position if self.time_position else 0.0
+        half = self.time_range / 2 if self.time_range else 0.0
         start, stop = (op(mean, half) for op in (operator.sub, operator.add))
         # Update value
         args = (start, stop, length)
         if self.linspace_args != args:
-            self.time_base = numpy.linspace(*args)
-            self.push_time_base_event()
+            self.time_base = stamped(numpy.linspace(*args), stamp)
         # Update args attribute
         self.linspace_args = args
 
@@ -273,6 +274,10 @@ class ScopeDevice(Device):
             self.error_stream("Cannot log traceback.")
         self.alive = False
 
+    def mapping(self, base, channels, default=None):
+        """Helper method to create a mapping interface."""
+        return mapping(self, base + '_', channels, default)
+
 # ------------------------------------------------------------------
 #    Queue methods
 # ------------------------------------------------------------------
@@ -307,60 +312,6 @@ class ScopeDevice(Device):
             finally:
                 self.reporting = False
                 self.request_queue.popleft()
-
-# ------------------------------------------------------------------
-#    Event methods
-# ------------------------------------------------------------------
-
-    def push_waveform_events(self, channels=channels, stamp=None):
-        """Push the TANGO change events for the given channels."""
-        if not self.waveform_events:
-            return
-        # Get stamp
-        valid = AttrQuality.ATTR_VALID
-        if stamp is None:
-            stamp = time()
-        # Loop over channels
-        for channel in channels:
-            # Waveform
-            name = self.waveform_names[channel]
-            data = self.waveforms[channel]
-            self.push_change_event(name, data, stamp, valid)
-            # Raw waveforms
-            name = self.raw_waveform_names[channel]
-            data = self.raw_waveforms[channel]
-            self.push_change_event(name, data, stamp, valid)
-
-    def push_time_base_event(self):
-        """Push the TANGO change event for the time base."""
-        if not self.waveform_events:
-            return
-        self.push_change_event(self.time_base_name, self.time_base)
-
-    def push_setting_event(self, setting, value):
-        """Push the TANGO change event for the scope settings."""
-        if not self.settings_events:
-            return
-        if not isinstance(setting, basestring):
-            setting = setting.get_name()
-        self.push_change_event(setting, value)
-
-    def setup_waveform_events(self):
-        """Setup events for waveforms and timescale."""
-        if not self.waveform_events:
-            return
-        for name in self.waveform_names.values():
-            self.set_change_event(name, True, True)
-        for name in self.raw_waveform_names.values():
-            self.set_change_event(name, True, True)
-        self.set_change_event(self.time_base_name, True, True)
-
-    def setup_settings_events(self):
-        """Setup events for the scope settings."""
-        if not self.settings_events:
-            return
-        for setting in self.settings_attributes:
-            self.set_change_event(setting.attr_name, True, True)
 
 # ------------------------------------------------------------------
 #    Update methods
@@ -403,7 +354,7 @@ class ScopeDevice(Device):
             status += " Up-to-date."
         self.set_status(status)
 
-    def get_update_string(self,):
+    def get_update_string(self):
         delta = time() - self.stamp
         if delta < self.update_timeout:
             return ""
@@ -434,8 +385,6 @@ class ScopeDevice(Device):
     def init_device(self):
         """Initialize instance attributes and start the thread."""
         # Initialize device
-        self.setup_waveform_events()
-        self.setup_settings_events()
         self.get_device_properties()
         self.set_state(PyTango.DevState.INIT)
         # Scope thread attribute
@@ -458,21 +407,22 @@ class ScopeDevice(Device):
         self.identifier = "unknown"
         self.status = ""
         self.time_scale = []
-        self.time_position = 0.0
-        self.time_range = 0.0
-        self.record_length = 0
+        self.time_position = None
+        self.time_range = None
+        self.record_length = None
         self.trigger_coupling = None
         self.trigger_channel = None
         self.trigger_slope = None
-        # Scope dict attributes
-        none = lambda: None
-        self.waveforms = defaultdict(list)
-        self.raw_waveforms = defaultdict(list)
-        self.channel_coupling = defaultdict(none)
-        self.channel_positions = defaultdict(none)
-        self.channel_scales = defaultdict(none)
-        self.trigger_levels = defaultdict(none)
-        self.channel_enabled = defaultdict(none)
+        self.trigger_source = None
+        # Scope mapping attributes
+        channels = self.channels
+        self.waveforms = self.mapping("waveform", channels)
+        self.raw_waveforms = self.mapping("raw_waveform", channels)
+        self.channel_coupling = self.mapping("channel_coupling", channels)
+        self.channel_positions = self.mapping("channel_position", channels)
+        self.channel_scales = self.mapping("channel_scale", channels)
+        self.trigger_levels = self.mapping("trigger_level", channels + [5])
+        self.channel_enabled = self.mapping("channel_enabled", channels)
         # Instanciate scope
         callback_ms = int(self.callback_timeout * 1000)
         connection_ms = int(self.connection_timeout * 1000)
@@ -486,7 +436,6 @@ class ScopeDevice(Device):
         self.scope = self.connection_class(**kwargs)
         # Push events
         self.update_time_base()
-        self.push_waveform_events()
         # Run thread
         self.scope_thread.start()
         self.decoding_thread.start()
@@ -535,14 +484,13 @@ class ScopeDevice(Device):
         doc="Instrument identification",
     )
 
-    settings_attributes.append(Identifier)
+    identifier = event_property(Identifier)
 
     def read_Identifier(self):
         return self.identifier
 
     def update_identifier(self):
         self.identifier = self.scope.get_identifier()
-        self.push_setting_event(self.Identifier, self.identifier)
 
     def is_read_allowed(self, request=None):
         return self.get_state() not in [DevState.INIT, DevState.FAULT]
@@ -550,8 +498,8 @@ class ScopeDevice(Device):
     def is_write_allowed(self, request=None):
         return self.get_state() in [DevState.ON, DevState.RUNNING]
 
-    def is_read_write_allowed(self, request):
-        if request.READ_REQ:
+    def is_read_write_allowed(self, request=None):
+        if request is None or request.READ_REQ:
             return self.is_read_allowed()
         return self.is_write_allowed()
 
@@ -571,7 +519,7 @@ class ScopeDevice(Device):
         doc="Horizontal time range",
     )
 
-    settings_attributes.append(TimeRange)
+    time_range = event_property(TimeRange)
 
     def read_TimeRange(self):
         return self.time_range
@@ -582,7 +530,6 @@ class ScopeDevice(Device):
 
     def update_time_range(self):
         self.time_range = self.scope.get_time_range()
-        self.push_setting_event(self.TimeRange, self.time_range)
         self.update_time_base()
 
     # Time Position
@@ -597,7 +544,7 @@ class ScopeDevice(Device):
         doc="Horizontal time position",
     )
 
-    settings_attributes.append(TimePosition)
+    time_position = event_property(TimePosition)
 
     def read_TimePosition(self):
         return self.time_position
@@ -608,7 +555,6 @@ class ScopeDevice(Device):
 
     def update_time_position(self):
         self.time_position = self.scope.get_time_position()
-        self.push_setting_event(self.TimePosition, self.time_position)
         self.update_time_base()
 
     # Record length
@@ -623,7 +569,7 @@ class ScopeDevice(Device):
         doc="Record length for the waveforms",
     )
 
-    settings_attributes.append(RecordLength)
+    record_length = event_property(RecordLength)
 
     def read_RecordLength(self):
         return self.record_length
@@ -634,7 +580,6 @@ class ScopeDevice(Device):
 
     def update_record_length(self):
         self.record_length = self.scope.get_record_length()
-        self.push_setting_event(self.RecordLength, self.record_length)
 
     # Time Base
 
@@ -645,6 +590,8 @@ class ScopeDevice(Device):
         unit="s",
         doc="Time base value table",
     )
+
+    time_base = event_property(TimeBase)
 
     def read_TimeBase(self):
         return self.time_base
@@ -663,10 +610,8 @@ class ScopeDevice(Device):
         self.enqueue(self.update_channel_enabled, channel)
 
     def update_channel_enabled(self, channel):
-        attr_name = "ChannelEnabled{0}".format(channel)
         enabled = self.scope.get_channel_enabled(channel)
         self.channel_enabled[channel] = enabled
-        self.push_setting_event(attr_name, enabled)
 
     def channel_enabled_attribute(channel,
                                   read=read_channel_enabled,
@@ -683,8 +628,10 @@ class ScopeDevice(Device):
     ChannelEnabled3 = channel_enabled_attribute(3)
     ChannelEnabled4 = channel_enabled_attribute(4)
 
-    settings_attributes += [ChannelEnabled1, ChannelEnabled2,
-                            ChannelEnabled3, ChannelEnabled4]
+    channel_enabled_1 = event_property(ChannelEnabled1)
+    channel_enabled_2 = event_property(ChannelEnabled2)
+    channel_enabled_3 = event_property(ChannelEnabled3)
+    channel_enabled_4 = event_property(ChannelEnabled4)
 
     # Channel Coupling
 
@@ -696,10 +643,8 @@ class ScopeDevice(Device):
         self.enqueue(self.update_channel_coupling, channel)
 
     def update_channel_coupling(self, channel):
-        attr_name = "ChannelCoupling{0}".format(channel)
         coupling = self.scope.get_channel_coupling(channel)
         self.channel_coupling[channel] = coupling
-        self.push_setting_event(attr_name, coupling)
 
     def channel_coupling_attribute(channel,
                                    read=read_channel_coupling,
@@ -718,8 +663,10 @@ class ScopeDevice(Device):
     ChannelCoupling3 = channel_coupling_attribute(3)
     ChannelCoupling4 = channel_coupling_attribute(4)
 
-    settings_attributes += [ChannelCoupling1, ChannelCoupling2,
-                            ChannelCoupling3, ChannelCoupling4]
+    channel_coupling_1 = event_property(ChannelCoupling1)
+    channel_coupling_2 = event_property(ChannelCoupling2)
+    channel_coupling_3 = event_property(ChannelCoupling3)
+    channel_coupling_4 = event_property(ChannelCoupling4)
 
     # Channel Position
 
@@ -731,10 +678,8 @@ class ScopeDevice(Device):
         self.enqueue(self.update_channel_position, channel)
 
     def update_channel_position(self, channel):
-        attr_name = "ChannelPosition{0}".format(channel)
         position = self.scope.get_channel_position(channel)
         self.channel_positions[channel] = position
-        self.push_setting_event(attr_name, position)
 
     def channel_position_attribute(channel,
                                    read=read_channel_position,
@@ -753,8 +698,10 @@ class ScopeDevice(Device):
     ChannelPosition3 = channel_position_attribute(3)
     ChannelPosition4 = channel_position_attribute(4)
 
-    settings_attributes += [ChannelPosition1, ChannelPosition2,
-                            ChannelPosition3, ChannelPosition4]
+    channel_position_1 = event_property(ChannelPosition1)
+    channel_position_2 = event_property(ChannelPosition2)
+    channel_position_3 = event_property(ChannelPosition3)
+    channel_position_4 = event_property(ChannelPosition4)
 
     # Channel Scale
 
@@ -766,10 +713,8 @@ class ScopeDevice(Device):
         self.enqueue(self.update_channel_scale, channel)
 
     def update_channel_scale(self, channel):
-        attr_name = "ChannelScale{0}".format(channel)
         scale = self.scope.get_channel_scale(channel)
         self.channel_scales[channel] = scale
-        self.push_setting_event(attr_name, scale)
 
     def channel_scale_attribute(channel,
                                 read=read_channel_scale,
@@ -788,8 +733,10 @@ class ScopeDevice(Device):
     ChannelScale3 = channel_scale_attribute(3)
     ChannelScale4 = channel_scale_attribute(4)
 
-    settings_attributes += [ChannelScale1, ChannelScale2,
-                            ChannelScale3, ChannelScale4]
+    channel_scale_1 = event_property(ChannelScale1)
+    channel_scale_2 = event_property(ChannelScale2)
+    channel_scale_3 = event_property(ChannelScale3)
+    channel_scale_4 = event_property(ChannelScale4)
 
 # ------------------------------------------------------------------
 #    Waveforms attributes
@@ -815,6 +762,11 @@ class ScopeDevice(Device):
     Waveform3 = waveform_attribute(3)
     Waveform4 = waveform_attribute(4)
 
+    waveform_1 = event_property(Waveform1)
+    waveform_2 = event_property(Waveform2)
+    waveform_3 = event_property(Waveform3)
+    waveform_4 = event_property(Waveform4)
+
     # Raw waveforms
 
     def read_raw_waveform(self, channel):
@@ -835,6 +787,11 @@ class ScopeDevice(Device):
     RawWaveform3 = raw_waveform_attribute(3)
     RawWaveform4 = raw_waveform_attribute(4)
 
+    raw_waveform_1 = event_property(RawWaveform1)
+    raw_waveform_2 = event_property(RawWaveform2)
+    raw_waveform_3 = event_property(RawWaveform3)
+    raw_waveform_4 = event_property(RawWaveform4)
+
 # ------------------------------------------------------------------
 #    Trigger attributes
 # ------------------------------------------------------------------
@@ -849,10 +806,8 @@ class ScopeDevice(Device):
         self.enqueue(self.update_trigger_level, channel)
 
     def update_trigger_level(self, channel):
-        attr_name = "TriggerLevel{0}".format(channel)
         level = self.scope.get_trigger_level(channel)
         self.trigger_levels[channel] = level
-        self.push_setting_event(attr_name, level)
 
     def level_attribute(channel,
                         read=read_trigger_level,
@@ -872,9 +827,11 @@ class ScopeDevice(Device):
     TriggerLevel4 = level_attribute(4)
     TriggerLevel5 = level_attribute(5)
 
-    settings_attributes += [TriggerLevel1, TriggerLevel2,
-                            TriggerLevel3, TriggerLevel4,
-                            TriggerLevel5]
+    trigger_level_1 = event_property(TriggerLevel1)
+    trigger_level_2 = event_property(TriggerLevel2)
+    trigger_level_3 = event_property(TriggerLevel3)
+    trigger_level_4 = event_property(TriggerLevel4)
+    trigger_level_5 = event_property(TriggerLevel5)
 
     # Trigger slope
 
@@ -887,7 +844,7 @@ class ScopeDevice(Device):
         doc="0 for negative, 1 for positive, 2 for either",
     )
 
-    settings_attributes.append(TriggerSlope)
+    trigger_slope = event_property(TriggerSlope)
 
     def read_TriggerSlope(self):
         return self.trigger_slope
@@ -898,7 +855,6 @@ class ScopeDevice(Device):
 
     def update_trigger_slope(self):
         self.trigger_slope = self.scope.get_trigger_slope()
-        self.push_setting_event(self.TriggerSlope, self.trigger_slope)
 
     # Trigger source
 
@@ -911,7 +867,7 @@ class ScopeDevice(Device):
         doc="Channel 1 to 4, or 5 for external trigger",
     )
 
-    settings_attributes.append(TriggerSource)
+    trigger_source = event_property(TriggerSource)
 
     def read_TriggerSource(self):
         return self.trigger_source
@@ -922,7 +878,6 @@ class ScopeDevice(Device):
 
     def update_trigger_source(self):
         self.trigger_source = self.scope.get_trigger_source()
-        self.push_setting_event(self.TriggerSource, self.trigger_source)
 
     # Trigger Coupling
 
@@ -934,7 +889,7 @@ class ScopeDevice(Device):
         doc="0 for DC, 1 for AC, 2 for HF",
     )
 
-    settings_attributes.append(TriggerCoupling)
+    trigger_coupling = event_property(TriggerCoupling)
 
     def read_TriggerCoupling(self):
         return self.trigger_coupling
@@ -945,7 +900,6 @@ class ScopeDevice(Device):
 
     def update_trigger_coupling(self):
         self.trigger_coupling = self.scope.get_trigger_coupling()
-        self.push_setting_event(self.TriggerCoupling, self.trigger_coupling)
 
 # ------------------------------------------------------------------
 #    Commands
