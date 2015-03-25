@@ -7,14 +7,16 @@ import functools
 import traceback
 import collections
 from time import sleep
-from PyTango import AttrQuality
 from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
 from collections import Mapping, namedtuple
+from PyTango import AttrQuality, AttReqType
 
 # Stamped tuple
-stamped = namedtuple("stamped", ("value", "stamp"))
+_stamped = namedtuple("stamped", ("value", "stamp", "quality"))
+stamped = functools.partial(_stamped, quality=AttrQuality.ATTR_VALID)
+
 
 # Patched version of partial
 def partial(func, *args, **kwargs):
@@ -191,112 +193,222 @@ def debug_periodic_method(stream=None, track=10):
 
 
 # Event property
-def event_property(attribute, default=None, invalid=None,
-                   is_allowed=None, event=True, dtype=None, doc=None):
-    """Return a property that pushes change events automatically."""
-    is_allowed = is_allowed or getattr(attribute, "is_allowed_name", "")
+class event_property(object):
+    """Property that pushes change events automatically."""
+
+    # Aliases
+    INVALID = AttrQuality.ATTR_INVALID
+    VALID = AttrQuality.ATTR_VALID
+
+    def __init__(self, attribute, default=None, invalid=None,
+                 is_allowed=None, event=True, doc=None):
+        self.attribute = attribute
+        self.default = default
+        self.invalid = invalid
+        self.event = event
+        self.__doc__ = doc
+        default = getattr(attribute, "is_allowed_name", "")
+        self.is_allowed = is_allowed or default
 
     # Helper
 
-    def get_attribute_name():
+    def get_attribute_name(self):
         try:
-            return attribute.attr_name
+            return self.attribute.attr_name
         except AttributeError:
-            return attribute
+            return self.attribute
 
-    def get_private_name():
-        return "__" + get_attribute_name()
-
-    # Descriptor methods
-
-    def getter(device, is_allowed=is_allowed):
+    def allowed(self, device):
+        is_allowed = self.is_allowed
         if is_allowed and isinstance(is_allowed, basestring):
             is_allowed = getattr(device, is_allowed)
-        if is_allowed and not is_allowed(None):
-            set_value(device, invalid)
-        return get_value(device)
+        return not is_allowed or is_allowed(AttReqType.READ_REQ)
 
-    def setter(device, value, is_allowed=is_allowed):
-        if is_allowed and isinstance(is_allowed, basestring):
-            is_allowed = getattr(device, is_allowed)
-        if is_allowed and not is_allowed(None):
-            value = invalid
-        set_value(device, value)
+    def event_enabled(self, device):
+        if self.event and isinstance(self.event, basestring):
+            return getattr(device, self.event)
+        return self.event
 
-    def deleter(device):
-        del_value(device)
+    def get_private_value(self, device):
+        name = "__" + self.get_attribute_name() + "_value"
+        return getattr(device, name)
+
+    def set_private_value(self, device, value):
+        name = "__" + self.get_attribute_name() + "_value"
+        setattr(device, name, value)
+
+    def get_private_quality(self, device):
+        name = "__" + self.get_attribute_name() + "_quality"
+        return getattr(device, name)
+
+    def set_private_quality(self, device, quality):
+        name = "__" + self.get_attribute_name() + "_quality"
+        setattr(device, name, quality)
+
+    def get_private_stamp(self, device):
+        name = "__" + self.get_attribute_name() + "_stamp"
+        return getattr(device, name)
+
+    def set_private_stamp(self, device, stamp):
+        name = "__" + self.get_attribute_name() + "_stamp"
+        setattr(device, name, stamp)
+
+    def delete_all(self, device):
+        for suffix in ("_value", "_stamp", "_quality"):
+            name = "__" + self.get_attribute_name() + suffix
+            try:
+                delattr(device, name)
+            except AttributeError:
+                pass
+
+    @classmethod
+    def unpack(cls, value):
+        try:
+            return value.value, value.stamp, value.quality
+        except AttributeError:
+            pass
+        try:
+            return value.value, value.stamp, None
+        except AttributeError:
+            pass
+        try:
+            return value.value, None, value.quality
+        except AttributeError:
+            pass
+        return value, None, None
+
+    def check_value(self, device, value, stamp, quality):
+        if value != self.invalid:
+            return value, stamp, quality
+        return self.get_default_value(device), stamp, self.INVALID
+
+    def get_default_value(self, device):
+        if self.default != self.invalid:
+            return self.default
+        attr = getattr(device, self.get_attribute_name())
+        if attr.get_data_type() == PyTango.DevString:
+            return str()
+        if attr.get_max_dim_x() > 1:
+            return list()
+        return int()
+
+    def get_default_quality(self):
+        if self.default != self.invalid:
+            return self.VALID
+        return self.INVALID
+
+    # Descriptors
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+        return self.getter(instance)
+
+    def __set__(self, instance, value):
+        return self.setter(instance, value)
+
+    def __del__(self, instance):
+        return self.deleter(instance)
+
+    # Access methods
+
+    def getter(self, device):
+        if not self.allowed(device):
+            self.set_value(device, quality=self.INVALID)
+        value, stamp, quality = self.get_value(device)
+        if quality == self.INVALID:
+            return self.invalid
+        return value
+
+    def setter(self, device, value):
+        value, stamp, quality = self.unpack(value)
+        if not self.allowed(device):
+            quality = self.INVALID
+        args = device, value, stamp, quality
+        self.set_value(device, *self.check_value(*args))
+
+    def deleter(self, device):
+        self.delete_all(device)
+
+    def reloader(self, device=None, reset=True):
+        # Prevent class calls
+        if device is None:
+            return
+        # Delete attributes
+        if reset:
+            self.deleter(device)
+        # Set quality
+        if not self.allowed(device):
+            self.set_value(device, quality=self.INVALID,
+                           disable_event=reset)
+        # Force events
+        if reset and self.event_enabled(device):
+            self.push_event(device, *self.get_value(device))
 
     # Private attribute access
 
-    def get_value(device):
+    def get_value(self, device):
         try:
-            return getattr(device, get_private_name())
+            value = self.get_private_value(device)
+            stamp = self.get_private_stamp(device)
+            quality = self.get_private_quality(device)
         except AttributeError:
-            set_value(device, default)
-            return default
+            value = self.get_default_value(device)
+            stamp = time()
+            quality = self.get_default_quality()
+        return value, stamp, quality
 
-    def set_value(device, value, event=event):
+    def set_value(self, device, value=None, stamp=None, quality=None,
+                  disable_event=False):
+        # Prepare
+        old_value, old_stamp, old_quality = self.get_value(device)
+        if value is None:
+            value = old_value
+        if stamp is None:
+            stamp = time()
+        if quality is None and value is not None:
+            quality = self.VALID
+        elif quality is None:
+            quality = old_quality
+        # Test differences
+        diff = old_quality != quality or old_value != value
         try:
-            value, stamp = value.value, value.stamp
-        except AttributeError:
-            stamp = None
-        try:
-            diff = (getattr(device, get_private_name()) == value)
-            if diff:
-                return
+            bool(diff)
         except ValueError:
-            if diff.all():
-                return
-        except AttributeError:
-            pass
-        setattr(device, get_private_name(), value)
-        if event and isinstance(event, basestring):
-            event = getattr(device, event)
-        if event:
-            push_event(device, value, stamp)
+            diff = diff.any()
+        if not diff:
+            return
+        # Set
+        self.set_private_value(device, value)
+        self.set_private_stamp(device, stamp)
+        self.set_private_quality(device, quality)
+        # Push event
+        if not disable_event and self.event_enabled(device):
+            self.push_event(device, *self.get_value(device))
 
-    def del_value(device):
-        try:
-            return delattr(device, get_private_name())
-        except AttributeError:
-            pass
+    # Aliases
+
+    read = get_value
+    write = set_value
 
     # Event method
 
-    def push_event(device, value, dtype=dtype, stamp=None):
-        attr = getattr(device, get_attribute_name())
+    def push_event(self, device, value, stamp, quality):
+        attr = getattr(device, self.get_attribute_name())
         if not attr.is_change_event():
             attr.set_change_event(True, False)
-        if not dtype and attr.get_data_type() == PyTango.DevString:
-            dtype = str
-        elif not dtype and attr.get_max_dim_x() > 1:
-            dtype = list
-        elif not dtype:
-            dtype = int
-        if not stamp:
-            stamp = time()
-            value == invalid
-        if value == invalid:
-            validity = AttrQuality.ATTR_INVALID
-            value = dtype()
-        else:
-            validity = AttrQuality.ATTR_VALID
-        device.push_change_event(get_attribute_name(), value, stamp, validity)
-
-    # Build property
-    return property(getter, setter, deleter, doc=doc)
+        device.push_change_event(self.get_attribute_name(),
+                                 value, stamp, quality)
 
 
+# Mapping object
 class mapping(Mapping):
     """Mapping object to gather python attributes."""
 
-    def __init__(self, instance, base, keys, default=None):
+    def __init__(self, instance, base, keys):
         self.base = base
         self.keys = keys
-        self.default = default
         self.instance = instance
-        for key in keys:
-            self[key] = default
 
     def __getitem__(self, key):
         if key not in self.keys:
@@ -306,7 +418,7 @@ class mapping(Mapping):
     def __setitem__(self, key, value):
         if key not in self.keys:
             raise KeyError(key)
-        return setattr(self.instance, self.base + str(key), value)
+        setattr(self.instance, self.base + str(key), value)
 
     def __iter__(self):
         return iter(self.keys)

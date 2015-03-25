@@ -11,8 +11,8 @@ from devicetest import DeviceTestCase
 
 
 # Constants
-READ = 0.001
-UPDATE = 0.002
+READ = 0.01
+UPDATE = 0.02
 PRECISION = 5
 
 
@@ -32,6 +32,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
     device = scopedevice.ScopeDevice
     properties = {'Host': '1.2.3.4'}
     empty = None  # Should be []
+    debug = 0
 
     def assertEquals(self, arg1, arg2):
         if isinstance(arg1, float) or isinstance(arg2, float):
@@ -75,8 +76,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
         is_connected = lambda *args: cls.instrument.connect.called
         cls.instrument.connected.__get__ = is_connected
         # Set up
-        scopedevice.ScopeDevice.waveform_events = False
-        scopedevice.ScopeDevice.settings_events = False
+        scopedevice.ScopeDevice.events = False
         scopedevice.ScopeDevice.acquisition_period = READ
         scopedevice.ScopeDevice.update_period = READ
         cls.instrument.get_status.return_value = "Some status."
