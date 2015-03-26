@@ -435,7 +435,7 @@ class ScopeDevice(RequestQueueDevice):
         self.decoding_thread.join()
 
 # ------------------------------------------------------------------
-#    General attributes
+#    General properties
 # ------------------------------------------------------------------
 
     Host = device_property(
@@ -467,7 +467,7 @@ class ScopeDevice(RequestQueueDevice):
         return self.get_state() in [DevState.ON, DevState.RUNNING]
 
     def is_read_write_allowed(self, request):
-        if request.READ_REQ:
+        if request == request.READ_REQ:
             return self.is_read_allowed()
         return self.is_write_allowed()
 

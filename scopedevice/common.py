@@ -184,7 +184,7 @@ def debug_periodic_method(stream=None, track=10):
     return decorator
 
 
-# Queue device class
+# Request queue device class
 class RequestQueueDevice(PyTango.server.Device):
     """Generic class implementing queues and state transiions."""
     __metaclass__ = DeviceMeta
@@ -195,8 +195,11 @@ class RequestQueueDevice(PyTango.server.Device):
 
     def init_device(self):
         """Initialize instance attributes and start the thread."""
+        PyTango.server.Device.set_state(self, PyTango.DevState.INIT)
         PyTango.server.Device.init_device(self)
-        self.set_state(PyTango.DevState.INIT)
+        # State and attributes
+        self.update_attributes(reset=True)
+        self.next_state = None
         # Request queue
         self.request_queue = collections.deque()
         self.awake = LockEvent()
@@ -212,7 +215,7 @@ class RequestQueueDevice(PyTango.server.Device):
         self.awake.set()
 
 # ------------------------------------------------------------------
-#    Exception methods
+#    Exception method
 # ------------------------------------------------------------------
 
     def register_exception(self, exc):
@@ -229,6 +232,14 @@ class RequestQueueDevice(PyTango.server.Device):
             self.error_stream("Cannot log traceback.")
         # Set state
         self.set_state(PyTango.DevState.FAULT)
+
+# ------------------------------------------------------------------
+#    Attribute method
+# ------------------------------------------------------------------
+
+    def update_attributes(self, reset=False):
+        """Reload attribute values. Not implemented."""
+        pass
 
 # ------------------------------------------------------------------
 #    Queue methods
@@ -304,6 +315,10 @@ class RequestQueueDevice(PyTango.server.Device):
 #    State methods
 # ------------------------------------------------------------------
 
+    def manage_state(self, state, transition=False):
+        """Handle the thread depending on the current state."""
+        self.update_attributes()
+
     def set_next_state(self, state=None):
         """Set the next state for a transistion."""
         self.next_state = state
@@ -315,20 +330,15 @@ class RequestQueueDevice(PyTango.server.Device):
     def set_state(self, state):
         """Awake the scope thread when the device is in the right state."""
         # Check transition
-        try:
-            if self.next_state is None:
-                msg = "Unplanned state transition ({0})"
-                self.debug_stream(msg.format(state))
-            elif self.next_state == state:
-                msg = "Valid state transition ({0})"
-                self.debug_stream(msg.format(state))
-            else:
-                msg = "Invalid state transition ({0} instead of {1})"
-                self.debug_stream(msg.format(state, self.next_state))
-        # First state
-        except AttributeError:
-            msg = "First transition ({0})"
+        if self.next_state is None:
+            msg = "Unplanned state transition ({0})"
             self.debug_stream(msg.format(state))
+        elif self.next_state == state:
+            msg = "Valid state transition ({0})"
+            self.debug_stream(msg.format(state))
+        else:
+            msg = "Invalid state transition ({0} instead of {1})"
+            self.debug_stream(msg.format(state, self.next_state))
         # Set state
         PyTango.server.Device.set_state(self, state)
         self.set_next_state()
