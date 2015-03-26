@@ -427,7 +427,7 @@ class mapping(Mapping):
         return len(self.keys)
 
 
-# Queue device class
+# Request queue device class
 class RequestQueueDevice(PyTango.server.Device):
     """Generic class implementing queues and state transiions."""
     __metaclass__ = DeviceMeta
