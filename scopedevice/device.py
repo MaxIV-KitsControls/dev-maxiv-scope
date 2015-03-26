@@ -260,15 +260,20 @@ class ScopeDevice(Device):
     @debug_it
     def register_exception(self, exc):
         """Register the error and stop the thread."""
+        # Set error
         try:
             self.error = str(exc) if str(exc) else repr(exc)
         except:
             self.error = "unexpected error"
+        # Log traceback
         try:
             self.error_stream(safe_traceback())
         except:
             self.error_stream("Cannot log traceback.")
+        # Set state
+        self.set_state(PyTango.DevState.FAULT)
         self.alive = False
+
 
 # ------------------------------------------------------------------
 #    Queue methods
@@ -344,42 +349,35 @@ class ScopeDevice(Device):
 #    Update methods
 # ------------------------------------------------------------------
 
-    def always_executed_hook(self):
-        """Update state and status."""
-        self.update_state()
-        self.update_status()
-
-    def update_status(self):
+    def dev_status(self):
         """Update the status from state, instrument status and timestamp."""
         # Init state
         if self.get_state() == PyTango.DevState.INIT:
-            self.set_status("Initializing...")
-            return
+            self.result = "Initializing..."
         # Standby state
-        if self.get_state() == PyTango.DevState.STANDBY:
-            self.set_status("Scope disconnected.")
-            return
+        elif self.get_state() == PyTango.DevState.STANDBY:
+            self.result = "Scope disconnected."
         # Running state
-        if self.get_state() == PyTango.DevState.RUNNING:
+        elif self.get_state() == PyTango.DevState.RUNNING:
             status = self.get_update_string()
             if not status:
                 status = "Scope is acquiring..."
-            self.set_status(status)
-            return
+            self.result = status
         # Fault state
-        if self.get_state() == PyTango.DevState.FAULT:
-            string = "Error: " + self.error + "\n"
-            string += "Please run the Init command to reconnect." + "\n"
-            string += "If the same error is raised, check the hardware state."
-            self.set_status(string)
-            return
+        elif self.get_state() == PyTango.DevState.FAULT:
+            status = "Error: " + self.error + "\n"
+            status += "Please run the Init command to reconnect." + "\n"
+            status += "If the same error is raised, check the hardware state."
+            self.result = status
         # On state
-        status = self.get_update_string()
-        if not status:
-            default_status = "No status available."
-            status = self.status if self.status else default_status
-            status += " Up-to-date."
-        self.set_status(status)
+        else:
+            status = self.get_update_string()
+            if not status:
+                default_status = "No status available."
+                status = self.status if self.status else default_status
+                status += " Up-to-date."
+            self.result = status
+        return self.result
 
     def get_update_string(self,):
         delta = time() - self.stamp
@@ -388,13 +386,6 @@ class ScopeDevice(Device):
         running = (self.get_state() == DevState.RUNNING)
         string = ("No update", "No trigger detected")[running]
         return string + " in the last {0:.2f} seconds.".format(delta)
-
-    def update_state(self):
-        """Update the state from connection status, errors and timeout."""
-        # Fault state
-        if self.error:
-            self.set_state(PyTango.DevState.FAULT)
-            return
 
     def set_state(self, state):
         """Awake the scope thread when the device is in the right state."""
