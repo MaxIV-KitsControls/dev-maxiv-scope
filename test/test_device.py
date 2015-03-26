@@ -11,8 +11,8 @@ from devicetest import DeviceTestCase
 
 
 # Constants
-READ = 0.001
-UPDATE = 0.002
+READ = 0.01
+UPDATE = 0.02
 PRECISION = 5
 
 
@@ -160,8 +160,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
         self.assertEquals(DevState.ON, self.device.state())
         self.device.run()
         sleep(UPDATE)
-        print self.device.status()
         self.assertEquals(DevState.RUNNING, self.device.state())
         # Stop device
         self.device.stop()
+        sleep(UPDATE)
         self.assertEquals(DevState.ON, self.device.state())

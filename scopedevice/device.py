@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # PyTango imports
 import PyTango
-from PyTango import DevState, AttrQuality
+from PyTango import DevState, AttrQuality, Except
 from PyTango.server import Device, device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
@@ -74,7 +74,12 @@ class ScopeDevice(Device):
         state = self.get_state()
         updating = (state == DevState.ON)
         acquiring = (state == DevState.RUNNING)
-        period = (self.update_period, self.acquisition_period)[acquiring]
+        # Set period
+        period = 0
+        if acquiring:
+            period = self.acquisition_period
+        elif updating:
+            period = self.update_period
         # Control loop time
         with tick_context(period):
             # Update and acquisitions
@@ -183,7 +188,7 @@ class ScopeDevice(Device):
         """Connect to the instrument."""
         self.scope.connect()
         self.update_identifier()
-        self.set_state(DevState.ON)
+        self.reset_flags()
 
     def disconnect(self):
         """Disconnect from the intrument."""
@@ -192,10 +197,12 @@ class ScopeDevice(Device):
     def prepare_acquisition(self):
         """Prepare the waveform acquisition."""
         self.scope.configure()
+        self.reset_flags()
 
     def clean_acquisition(self):
         """Clean the waveform acquisition."""
         self.scope.configure()
+        self.reset_flags()
 
     def check_connection(self):
         """Check the scope connection"""
@@ -272,7 +279,6 @@ class ScopeDevice(Device):
             self.error_stream("Cannot log traceback.")
         # Set state
         self.set_state(PyTango.DevState.FAULT)
-        self.alive = False
 
 
 # ------------------------------------------------------------------
@@ -289,6 +295,35 @@ class ScopeDevice(Device):
             append = True
         if append:
             self.request_queue.append(item)
+
+    def enqueue_transition(self, state1, state2, func, *args, **kwargs):
+        """Enqueue a task associated to a state transition."""
+        def wrapper():
+            # Check initial state
+            if self.get_state() != state1:
+                msg = "Cannot run transition task, state is {0} instead of {1}"
+                self.warn_stream(msg.format(self.get_state(), state1))
+                return
+            # Execute task
+            try:
+                res = func(*args, **kwargs)
+            # Reset transition
+            except:
+                msg = "Got an exception while running the transition task"
+                self.warn_stream(msg)
+                self.next_state = None
+                raise
+            # Check initial state
+            if self.get_state() != state1:
+                msg = "Cannot transit to {0}, state is {1} instead of {2}"
+                self.warn_stream(msg.format(state2, self.get_state(), state1))
+                return res
+            # Set new state
+            self.set_state(state2)
+            return res
+        # Register next state
+        self.set_next_state(state2)
+        self.enqueue(wrapper)
 
     def process_queue(self):
         """Process all tasks in the queue."""
@@ -346,7 +381,68 @@ class ScopeDevice(Device):
             self.set_change_event(self.time_base_name, True, True)
 
 # ------------------------------------------------------------------
-#    Update methods
+#    State methods
+# ------------------------------------------------------------------
+
+    def set_next_state(self, state=None):
+        """Set the next state for a transistion."""
+        self.next_state = state
+        if state is not None:
+            self.manage_state(state, transition=True)
+        else:
+            self.manage_state(self.get_state(), transition=False)
+
+    def manage_state(self, state, transition=False):
+        """Handle the thread depending on the current state."""
+        # Start thread
+        if transition and state in (DevState.ON, DevState.RUNNING):
+            self.awake.set()
+        # Stop thread
+        if not transition and self.get_state() == DevState.STANDBY:
+            self.awake.clear()
+        # Terminate thread
+        if not transition and self.get_state() == DevState.FAULT:
+            self.alive = False
+            self.awake.set()
+
+    def set_state(self, state):
+        """Awake the scope thread when the device is in the right state."""
+        # Check transition
+        try:
+            if self.next_state is None:
+                msg = "Unplanned state transition ({0})"
+                self.debug_stream(msg.format(state))
+            elif self.next_state == state:
+                msg = "Valid state transition ({0})"
+                self.debug_stream(msg.format(state))
+            else:
+                msg = "Invalid state transition ({0} instead of {1})"
+                self.debug_stream(msg.format(state, self.next_state))
+        # First state
+        except AttributeError:
+            msg = "First transition ({0})"
+            self.debug_stream(msg.format(state))
+        # Set state
+        Device.set_state(self, state)
+        self.set_next_state()
+        # Stop the thread
+        if state not in (DevState.ON, DevState.RUNNING, DevState.INIT):
+            self.awake.clear()
+
+    def steady_state(self, state, raise_exception=True):
+        """Check that the device is in a given steady state."""
+        if self.get_state() != state:
+            return False
+        if self.next_state is None:
+            return True
+        if raise_exception:
+            Except.throw_exception("COMMAND_FAILED",
+                                   "The current state is changing",
+                                   'ScopeDevice::steady_state()')
+        return False
+
+# ------------------------------------------------------------------
+#    Status methods
 # ------------------------------------------------------------------
 
     def dev_status(self):
@@ -386,14 +482,6 @@ class ScopeDevice(Device):
         running = (self.get_state() == DevState.RUNNING)
         string = ("No update", "No trigger detected")[running]
         return string + " in the last {0:.2f} seconds.".format(delta)
-
-    def set_state(self, state):
-        """Awake the scope thread when the device is in the right state."""
-        Device.set_state(self, state)
-        if state in (DevState.ON, DevState.RUNNING):
-            self.awake.set()
-        elif state != DevState.INIT:
-            self.awake.clear()
 
 # ------------------------------------------------------------------
 #    Initialization methods
@@ -880,46 +968,44 @@ class ScopeDevice(Device):
     @command
     def Run(self):
         """Run the acquisition. Available in ON state."""
-        self.enqueue(self.prepare_acquisition)
-        self.set_state(DevState.RUNNING)
+        self.enqueue_transition(DevState.ON, DevState.RUNNING,
+                                self.prepare_acquisition)
 
     def is_Run_allowed(self):
-        return self.get_state() == DevState.ON
+        return self.steady_state(DevState.ON)
 
     # Stop command
 
     @command
     def Stop(self):
         """Stop the acquisition. Available in RUNNING state."""
-        self.enqueue(self.clean_acquisition)
-        self.set_state(DevState.ON)
-        self.reset_flags()
+        self.enqueue_transition(DevState.RUNNING, DevState.ON,
+                                self.clean_acquisition)
 
     def is_Stop_allowed(self):
-        return self.get_state() == DevState.RUNNING
+        return self.steady_state(DevState.RUNNING)
 
     # On command
 
     @command
     def On(self):
         """Connect to the scope. Available in STANDBY state."""
-        self.enqueue(self.connect)
-        self.reset_flags()
-        self.awake.set()
+        self.enqueue_transition(DevState.STANDBY, DevState.ON,
+                                self.connect)
 
     def is_On_allowed(self):
-        return self.get_state() == DevState.STANDBY
+        return self.steady_state(DevState.STANDBY)
 
     # Standby command
 
     @command
     def Standby(self):
         """Disconnect from the scope. Available in STANDBY state."""
-        self.enqueue(self.disconnect)
-        self.set_state(DevState.STANDBY)
+        self.enqueue_transition(DevState.ON, DevState.STANDBY,
+                                self.disconnect)
 
     def is_Standby_allowed(self):
-        return self.get_state() == DevState.ON
+        return self.steady_state(DevState.ON)
 
     # Execute command
 
@@ -965,7 +1051,8 @@ class ScopeDevice(Device):
         return str(result)
 
     def is_Execute_allowed(self):
-        return self.get_state() in [DevState.ON, DevState.RUNNING]
+        return (self.steady_state(DevState.ON) or
+                self.steady_state(DevState.RUNNING))
 
 
 # RTO scope device
