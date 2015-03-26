@@ -8,12 +8,12 @@ import operator
 from Queue import Queue
 from threading import Thread
 from timeit import default_timer as time
-from collections import deque, defaultdict
+from collections import defaultdict
 
 # PyTango imports
 import PyTango
-from PyTango import DevState, AttrQuality, Except
-from PyTango.server import Device, device_property, command
+from PyTango import DevState, AttrQuality
+from PyTango.server import device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
 # Library imports
@@ -21,13 +21,13 @@ from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
 
 # Common imports
 from scopedevice.common import (read_attribute, rw_attribute,
-                                DeviceMeta, StopIO, LockEvent, partial,
+                                DeviceMeta, StopIO, partial,
                                 tick_context, safe_loop, safe_traceback,
-                                debug_periodic_method)
+                                debug_periodic_method, RequestQueueDevice)
 
 
 # Generic scope device
-class ScopeDevice(Device):
+class ScopeDevice(RequestQueueDevice):
     """Generic class for scope devices."""
     __metaclass__ = DeviceMeta
 
@@ -60,9 +60,7 @@ class ScopeDevice(Device):
     def scope_loop(self):
         """The target for the thread to access the instrument."""
         # Wait to be awaken
-        with self.awake:
-            if not self.request_queue:
-                self.awake.wait()
+        self.safe_wait()
         # Not alive
         if not self.alive:
             # Disconnect the scope
@@ -264,87 +262,6 @@ class ScopeDevice(Device):
         # Register exception
         self.register_exception(exc)
 
-    @debug_it
-    def register_exception(self, exc):
-        """Register the error and stop the thread."""
-        # Set error
-        try:
-            self.error = str(exc) if str(exc) else repr(exc)
-        except:
-            self.error = "unexpected error"
-        # Log traceback
-        try:
-            self.error_stream(safe_traceback())
-        except:
-            self.error_stream("Cannot log traceback.")
-        # Set state
-        self.set_state(PyTango.DevState.FAULT)
-
-
-# ------------------------------------------------------------------
-#    Queue methods
-# ------------------------------------------------------------------
-
-    def enqueue(self, func, *args, **kwargs):
-        """Enqueue a task to be process by the thread."""
-        report = kwargs.pop('report', False)
-        item = func, args, kwargs, report
-        try:
-            append = (item != self.request_queue[-1])
-        except IndexError:
-            append = True
-        if append:
-            self.request_queue.append(item)
-
-    def enqueue_transition(self, state1, state2, func, *args, **kwargs):
-        """Enqueue a task associated to a state transition."""
-        def wrapper():
-            # Check initial state
-            if self.get_state() != state1:
-                msg = "Cannot run transition task, state is {0} instead of {1}"
-                self.warn_stream(msg.format(self.get_state(), state1))
-                return
-            # Execute task
-            try:
-                res = func(*args, **kwargs)
-            # Reset transition
-            except:
-                msg = "Got an exception while running the transition task"
-                self.warn_stream(msg)
-                self.next_state = None
-                raise
-            # Check initial state
-            if self.get_state() != state1:
-                msg = "Cannot transit to {0}, state is {1} instead of {2}"
-                self.warn_stream(msg.format(state2, self.get_state(), state1))
-                return res
-            # Set new state
-            self.set_state(state2)
-            return res
-        # Register next state
-        self.set_next_state(state2)
-        self.enqueue(wrapper)
-
-    def process_queue(self):
-        """Process all tasks in the queue."""
-        while self.request_queue:
-            # Get item
-            try:
-                item = self.request_queue[0]
-            except IndexError:
-                break
-            # Unpack item
-            func, args, kwargs, self.reporting = item
-            # Process item
-            try:
-                result = func(*args, **kwargs)
-                if self.reporting:
-                    self.report_queue.append(result)
-            # Remove item
-            finally:
-                self.reporting = False
-                self.request_queue.popleft()
-
 # ------------------------------------------------------------------
 #    Event methods
 # ------------------------------------------------------------------
@@ -384,14 +301,6 @@ class ScopeDevice(Device):
 #    State methods
 # ------------------------------------------------------------------
 
-    def set_next_state(self, state=None):
-        """Set the next state for a transistion."""
-        self.next_state = state
-        if state is not None:
-            self.manage_state(state, transition=True)
-        else:
-            self.manage_state(self.get_state(), transition=False)
-
     def manage_state(self, state, transition=False):
         """Handle the thread depending on the current state."""
         # Start thread
@@ -404,42 +313,6 @@ class ScopeDevice(Device):
         if not transition and self.get_state() == DevState.FAULT:
             self.alive = False
             self.awake.set()
-
-    def set_state(self, state):
-        """Awake the scope thread when the device is in the right state."""
-        # Check transition
-        try:
-            if self.next_state is None:
-                msg = "Unplanned state transition ({0})"
-                self.debug_stream(msg.format(state))
-            elif self.next_state == state:
-                msg = "Valid state transition ({0})"
-                self.debug_stream(msg.format(state))
-            else:
-                msg = "Invalid state transition ({0} instead of {1})"
-                self.debug_stream(msg.format(state, self.next_state))
-        # First state
-        except AttributeError:
-            msg = "First transition ({0})"
-            self.debug_stream(msg.format(state))
-        # Set state
-        Device.set_state(self, state)
-        self.set_next_state()
-        # Stop the thread
-        if state not in (DevState.ON, DevState.RUNNING, DevState.INIT):
-            self.awake.clear()
-
-    def steady_state(self, state, raise_exception=True):
-        """Check that the device is in a given steady state."""
-        if self.get_state() != state:
-            return False
-        if self.next_state is None:
-            return True
-        if raise_exception:
-            Except.throw_exception("COMMAND_FAILED",
-                                   "The current state is changing",
-                                   'ScopeDevice::steady_state()')
-        return False
 
 # ------------------------------------------------------------------
 #    Status methods
@@ -490,24 +363,15 @@ class ScopeDevice(Device):
     @debug_it
     def init_device(self):
         """Initialize instance attributes and start the thread."""
-        # Initialize device
+        RequestQueueDevice.init_device(self)
         self.setup_events()
-        self.get_device_properties()
-        self.set_state(PyTango.DevState.INIT)
-        # Scope thread attribute
+        # Thread attribute
         self.scope_thread = Thread(target=self.scope_loop)
-        self.request_queue = deque()
-        self.awake = LockEvent()
-        self.alive = True
-        # Decoding thread attributes
         self.decoding_thread = Thread(target=self.decoding_loop)
         self.decoding_queue = Queue()
-        # ExecCommand support
-        self.report_queue = deque(maxlen=1)
-        self.reporting = False
-        self.waiting = False
         # Misc. attributes
         self.linspace_args = None
+        self.waiting = False
         self.stamp = time()
         self.error = ""
         # Scope scalar attributes
@@ -552,13 +416,12 @@ class ScopeDevice(Device):
     @debug_it
     def delete_device(self):
         """Try to stop the thread."""
+        RequestQueueDevice.delete_device(self)
         self.stop_scope_thread()
         self.stop_decoding_thread()
 
     def stop_scope_thread(self):
         """Stop the scope thread."""
-        self.alive = False
-        self.awake.set()
         timeout = self.connection_timeout + self.callback_timeout
         self.debug_stream("Joining the reading thread...")
         self.scope_thread.join(timeout)

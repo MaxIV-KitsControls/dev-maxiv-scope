@@ -182,3 +182,165 @@ def debug_periodic_method(stream=None, track=10):
             return value
         return wrapper
     return decorator
+
+
+# Queue device class
+class RequestQueueDevice(PyTango.server.Device):
+    """Generic class implementing queues and state transiions."""
+    __metaclass__ = DeviceMeta
+
+# ------------------------------------------------------------------
+#    Initialization methods
+# ------------------------------------------------------------------
+
+    def init_device(self):
+        """Initialize instance attributes and start the thread."""
+        PyTango.server.Device.init_device(self)
+        self.set_state(PyTango.DevState.INIT)
+        # Request queue
+        self.request_queue = collections.deque()
+        self.awake = LockEvent()
+        self.alive = True
+        # Report queue
+        self.report_queue = collections.deque(maxlen=1)
+        self.reporting = False
+
+    def delete_device(self):
+        PyTango.server.Device.delete_device(self)
+        """Try to stop the thread."""
+        self.alive = False
+        self.awake.set()
+
+# ------------------------------------------------------------------
+#    Exception methods
+# ------------------------------------------------------------------
+
+    def register_exception(self, exc):
+        """Register the error and stop the thread."""
+        # Set error
+        try:
+            self.error = str(exc) if str(exc) else repr(exc)
+        except:
+            self.error = "unexpected error"
+        # Log traceback
+        try:
+            self.error_stream(safe_traceback())
+        except:
+            self.error_stream("Cannot log traceback.")
+        # Set state
+        self.set_state(PyTango.DevState.FAULT)
+
+# ------------------------------------------------------------------
+#    Queue methods
+# ------------------------------------------------------------------
+
+    def safe_wait(self):
+        """Wait to be awaken only if the queue is empty."""
+        with self.awake:
+            if not self.request_queue:
+                self.awake.wait()
+
+    def enqueue(self, func, *args, **kwargs):
+        """Enqueue a task to be process by the thread."""
+        report = kwargs.pop('report', False)
+        item = func, args, kwargs, report
+        try:
+            append = (item != self.request_queue[-1])
+        except IndexError:
+            append = True
+        if append:
+            self.request_queue.append(item)
+
+    def enqueue_transition(self, state1, state2, func, *args, **kwargs):
+        """Enqueue a task associated to a state transition."""
+        def wrapper():
+            # Check initial state
+            if self.get_state() != state1:
+                msg = "Cannot run transition task, state is {0} instead of {1}"
+                self.warn_stream(msg.format(self.get_state(), state1))
+                return
+            # Execute task
+            try:
+                res = func(*args, **kwargs)
+            # Reset transition
+            except:
+                msg = "Got an exception while running the transition task"
+                self.warn_stream(msg)
+                self.next_state = None
+                raise
+            # Check initial state
+            if self.get_state() != state1:
+                msg = "Cannot transit to {0}, state is {1} instead of {2}"
+                self.warn_stream(msg.format(state2, self.get_state(), state1))
+                return res
+            # Set new state
+            self.set_state(state2)
+            return res
+        # Register next state
+        self.set_next_state(state2)
+        self.enqueue(wrapper)
+
+    def process_queue(self):
+        """Process all tasks in the queue."""
+        while self.request_queue:
+            # Get item
+            try:
+                item = self.request_queue[0]
+            except IndexError:
+                break
+            # Unpack item
+            func, args, kwargs, self.reporting = item
+            # Process item
+            try:
+                result = func(*args, **kwargs)
+                if self.reporting:
+                    self.report_queue.append(result)
+            # Remove item
+            finally:
+                self.reporting = False
+                self.request_queue.popleft()
+
+# ------------------------------------------------------------------
+#    State methods
+# ------------------------------------------------------------------
+
+    def set_next_state(self, state=None):
+        """Set the next state for a transistion."""
+        self.next_state = state
+        if state is not None:
+            self.manage_state(state, transition=True)
+        else:
+            self.manage_state(self.get_state(), transition=False)
+
+    def set_state(self, state):
+        """Awake the scope thread when the device is in the right state."""
+        # Check transition
+        try:
+            if self.next_state is None:
+                msg = "Unplanned state transition ({0})"
+                self.debug_stream(msg.format(state))
+            elif self.next_state == state:
+                msg = "Valid state transition ({0})"
+                self.debug_stream(msg.format(state))
+            else:
+                msg = "Invalid state transition ({0} instead of {1})"
+                self.debug_stream(msg.format(state, self.next_state))
+        # First state
+        except AttributeError:
+            msg = "First transition ({0})"
+            self.debug_stream(msg.format(state))
+        # Set state
+        PyTango.server.Device.set_state(self, state)
+        self.set_next_state()
+
+    def steady_state(self, state, raise_exception=True):
+        """Check that the device is in a given steady state."""
+        if self.get_state() != state:
+            return False
+        if self.next_state is None:
+            return True
+        if raise_exception:
+            PyTango.Except.throw_exception("COMMAND_FAILED",
+                                           "The current state is changing",
+                                           "ScopeDevice::steady_state()")
+        return False
