@@ -7,27 +7,26 @@ import operator
 from Queue import Queue
 from threading import Thread
 from timeit import default_timer as time
-from collections import deque
 
 # PyTango imports
 import PyTango
 from PyTango import DevState
-from PyTango.server import Device, device_property, command
+from PyTango.server import device_property, command
 debug_it = PyTango.DebugIt(True, True, True)
 
 # Library imports
-from rohdescope import RTMConnection, RTOConnection, Vxi11Exception
+from rohdescope import Vxi11Exception
 
 # Common imports
 from scopedevice.common import (read_attribute, rw_attribute, mapping,
-                                DeviceMeta, StopIO, LockEvent, partial,
+                                DeviceMeta, StopIO, partial, stamped,
                                 tick_context, safe_loop, safe_traceback,
                                 debug_periodic_method, event_property,
-                                stamped)
+                                RequestQueueDevice)
 
 
 # Generic scope device
-class ScopeDevice(Device):
+class ScopeDevice(RequestQueueDevice):
     """Generic class for scope devices."""
     __metaclass__ = DeviceMeta
 
@@ -62,9 +61,7 @@ class ScopeDevice(Device):
     def scope_loop(self):
         """The target for the thread to access the instrument."""
         # Wait to be awaken
-        with self.awake:
-            if not self.request_queue:
-                self.awake.wait()
+        self.safe_wait()
         # Not alive
         if not self.alive:
             # Disconnect the scope
@@ -76,7 +73,12 @@ class ScopeDevice(Device):
         state = self.get_state()
         updating = (state == DevState.ON)
         acquiring = (state == DevState.RUNNING)
-        period = (self.update_period, self.acquisition_period)[acquiring]
+        # Set period
+        period = 0
+        if acquiring:
+            period = self.acquisition_period
+        elif updating:
+            period = self.update_period
         # Control loop time
         with tick_context(period):
             # Update and acquisitions
@@ -187,7 +189,7 @@ class ScopeDevice(Device):
         """Connect to the instrument."""
         self.scope.connect()
         self.update_identifier()
-        self.set_state(DevState.ON)
+        self.reset_flags()
 
     def disconnect(self):
         """Disconnect from the intrument."""
@@ -196,10 +198,12 @@ class ScopeDevice(Device):
     def prepare_acquisition(self):
         """Prepare the waveform acquisition."""
         self.scope.configure()
+        self.reset_flags()
 
     def clean_acquisition(self):
         """Clean the waveform acquisition."""
         self.scope.configure()
+        self.reset_flags()
 
     def check_connection(self):
         """Check the scope connection"""
@@ -261,23 +265,6 @@ class ScopeDevice(Device):
         # Register exception
         self.register_exception(exc)
 
-    @debug_it
-    def register_exception(self, exc):
-        """Register the error and stop the thread."""
-        # Set error
-        try:
-            self.error = str(exc) if str(exc) else repr(exc)
-        except:
-            self.error = "unexpected error"
-        # Log traceback
-        try:
-            self.error_stream(safe_traceback())
-        except:
-            self.error_stream("Cannot log traceback.")
-        # Set state
-        self.set_state(PyTango.DevState.FAULT)
-        self.alive = False
-
     def channel_mapping(self, base, external=False):
         """Helper method to create a mapping interface."""
         channels = list(self.channels)
@@ -286,42 +273,25 @@ class ScopeDevice(Device):
         return mapping(self, base + '_', channels)
 
 # ------------------------------------------------------------------
-#    Queue methods
+#    State methods
 # ------------------------------------------------------------------
 
-    def enqueue(self, func, *args, **kwargs):
-        """Enqueue a task to be process by the thread."""
-        report = kwargs.pop('report', False)
-        item = func, args, kwargs, report
-        try:
-            append = (item != self.request_queue[-1])
-        except IndexError:
-            append = True
-        if append:
-            self.request_queue.append(item)
-
-    def process_queue(self):
-        """Process all tasks in the queue."""
-        while self.request_queue:
-            # Get item
-            try:
-                item = self.request_queue[0]
-            except IndexError:
-                break
-            # Unpack item
-            func, args, kwargs, self.reporting = item
-            # Process item
-            try:
-                result = func(*args, **kwargs)
-                if self.reporting:
-                    self.report_queue.append(result)
-            # Remove item
-            finally:
-                self.reporting = False
-                self.request_queue.popleft()
+    def manage_state(self, state, transition=False):
+        """Handle the thread depending on the current state."""
+        RequestQueueDevice.manage_state(self, state, transition)
+        # Start thread
+        if transition and state in (DevState.ON, DevState.RUNNING):
+            self.awake.set()
+        # Stop thread
+        if not transition and self.get_state() == DevState.STANDBY:
+            self.awake.clear()
+        # Terminate thread
+        if not transition and self.get_state() == DevState.FAULT:
+            self.alive = False
+            self.awake.set()
 
 # ------------------------------------------------------------------
-#    Update methods
+#    Status methods
 # ------------------------------------------------------------------
 
     def dev_status(self):
@@ -362,15 +332,6 @@ class ScopeDevice(Device):
         string = ("No update", "No trigger detected")[running]
         return string + " in the last {0:.2f} seconds.".format(delta)
 
-    def set_state(self, state):
-        """Awake the scope thread when the device is in the right state."""
-        Device.set_state(self, state)
-        self.update_attributes()
-        if state in (DevState.ON, DevState.RUNNING):
-            self.awake.set()
-        elif state != DevState.INIT:
-            self.awake.clear()
-
 # ------------------------------------------------------------------
 #    Initialization methods
 # ------------------------------------------------------------------
@@ -387,24 +348,14 @@ class ScopeDevice(Device):
     @debug_it
     def init_device(self):
         """Initialize instance attributes and start the thread."""
-        self.set_state(PyTango.DevState.INIT)
-        # Initialize device
-        self.update_attributes(reset=True)
-        self.get_device_properties()
-        # Scope thread attribute
+        RequestQueueDevice.init_device(self)
+        # Thread attribute
         self.scope_thread = Thread(target=self.scope_loop)
-        self.request_queue = deque()
-        self.awake = LockEvent()
-        self.alive = True
-        # Decoding thread attributes
         self.decoding_thread = Thread(target=self.decoding_loop)
         self.decoding_queue = Queue()
-        # ExecCommand support
-        self.report_queue = deque(maxlen=1)
-        self.reporting = False
-        self.waiting = False
         # Misc. attributes
         self.linspace_args = None
+        self.waiting = False
         self.stamp = time()
         self.error = ""
         # Mapping attributes
@@ -437,14 +388,13 @@ class ScopeDevice(Device):
     @debug_it
     def delete_device(self):
         """Try to stop the thread."""
+        RequestQueueDevice.delete_device(self)
         self.stop_scope_thread()
         self.stop_decoding_thread()
         self.update_attributes(reset=True)
 
     def stop_scope_thread(self):
         """Stop the scope thread."""
-        self.alive = False
-        self.awake.set()
         timeout = self.connection_timeout + self.callback_timeout
         self.debug_stream("Joining the reading thread...")
         self.scope_thread.join(timeout)
@@ -881,46 +831,44 @@ class ScopeDevice(Device):
     @command
     def Run(self):
         """Run the acquisition. Available in ON state."""
-        self.enqueue(self.prepare_acquisition)
-        self.set_state(DevState.RUNNING)
+        self.enqueue_transition(DevState.ON, DevState.RUNNING,
+                                self.prepare_acquisition)
 
     def is_Run_allowed(self):
-        return self.get_state() == DevState.ON
+        return self.steady_state(DevState.ON)
 
     # Stop command
 
     @command
     def Stop(self):
         """Stop the acquisition. Available in RUNNING state."""
-        self.enqueue(self.clean_acquisition)
-        self.set_state(DevState.ON)
-        self.reset_flags()
+        self.enqueue_transition(DevState.RUNNING, DevState.ON,
+                                self.clean_acquisition)
 
     def is_Stop_allowed(self):
-        return self.get_state() == DevState.RUNNING
+        return self.steady_state(DevState.RUNNING)
 
     # On command
 
     @command
     def On(self):
         """Connect to the scope. Available in STANDBY state."""
-        self.enqueue(self.connect)
-        self.reset_flags()
-        self.awake.set()
+        self.enqueue_transition(DevState.STANDBY, DevState.ON,
+                                self.connect)
 
     def is_On_allowed(self):
-        return self.get_state() == DevState.STANDBY
+        return self.steady_state(DevState.STANDBY)
 
     # Standby command
 
     @command
     def Standby(self):
         """Disconnect from the scope. Available in STANDBY state."""
-        self.enqueue(self.disconnect)
-        self.set_state(DevState.STANDBY)
+        self.enqueue_transition(DevState.ON, DevState.STANDBY,
+                                self.disconnect)
 
     def is_Standby_allowed(self):
-        return self.get_state() == DevState.ON
+        return self.steady_state(DevState.ON)
 
     # Execute command
 
@@ -966,127 +914,5 @@ class ScopeDevice(Device):
         return str(result)
 
     def is_Execute_allowed(self):
-        return self.get_state() in [DevState.ON, DevState.RUNNING]
-
-
-# RTO scope device
-class RTOScope(ScopeDevice):
-    """RTO scope device."""
-    __metaclass__ = DeviceMeta
-
-    # Library
-    connection_class = RTOConnection
-
-    # Prepare acquisition
-    def prepare_acquisition(self):
-        """Prepare the acquisition."""
-        ScopeDevice.prepare_acquisition(self)
-        self.scope.set_display(False)
-
-    # Clean acquisition
-    def clean_acquisition(self):
-        """Clean the acquisition."""
-        ScopeDevice.clean_acquisition(self)
-        self.scope.set_display(True)
-
-    # Turn on the display
-    def delete_device(self):
-        """Turn on the display and stop the threads."""
-        try:
-            if self.connected:
-                self.scope.set_display(True)
-        except Exception as exc:
-            msg = "Error while turning the display on: {0}"
-            self.debug_stream(safe_traceback())
-            self.error_stream(msg.format(exc))
-        return ScopeDevice.delete_device(self)
-
-    # Channel couling
-    def channel_coupling_attribute(channel):
-        write = ScopeDevice.write_channel_coupling
-        attrs = [ScopeDevice.channel_coupling_1,
-                 ScopeDevice.channel_coupling_2,
-                 ScopeDevice.channel_coupling_3,
-                 ScopeDevice.channel_coupling_4]
-        return rw_attribute(
-            dtype=int,
-            min_value=0,
-            max_value=2,
-            fget=attrs[channel-1].read,
-            label="Channel coupling {0}".format(channel),
-            doc="0 for DC, 1 for AC, 2 for DCLimit",
-            fset=partial(write, channel=channel))
-
-    ChannelCoupling1 = channel_coupling_attribute(1)
-    ChannelCoupling2 = channel_coupling_attribute(2)
-    ChannelCoupling3 = channel_coupling_attribute(3)
-    ChannelCoupling4 = channel_coupling_attribute(4)
-
-    # Trigger coupling
-
-    TriggerCoupling = rw_attribute(
-        dtype=int,
-        min_value=0,
-        max_value=2,
-        label="Trigger coupling",
-        fget=ScopeDevice.trigger_coupling.read,
-        doc="0 for DC, 1 for AC, 2 for DCLimit",
-    )
-
-    # Expert attribute for busy wait
-
-    BusyWait = rw_attribute(
-        dtype=bool,
-        format="%1d",
-        label="Busy wait",
-        display_level=PyTango.DispLevel.EXPERT,
-        doc="Use busy wait for acquiring (safer)",
-    )
-
-    def read_BusyWait(self):
-        return self.busy_wait
-
-    def write_BusyWait(self, boolean):
-        self.busy_wait = boolean
-
-
-# Generic scope device
-class RTMScope(ScopeDevice):
-    """RTM scope device."""
-    __metaclass__ = DeviceMeta
-
-    # Library
-    connection_class = RTMConnection
-
-    # Prepare acquisition
-    def prepare_acquisition(self):
-        """Prepare the acquisition."""
-        ScopeDevice.prepare_acquisition(self)
-        self.scope.issue_run()
-
-    # Clean acquisition
-    def clean_acquisition(self):
-        """Clean the acquisition."""
-        ScopeDevice.clean_acquisition(self)
-        self.scope.issue_stop()
-
-    # Catch EOFError
-    def handle_exception(self, exc):
-        """"Handle a given exception"""
-        if isinstance(exc, EOFError):
-            self.warn_stream(safe_traceback())
-            self.error_stream("Ignoring an end-of-file error...")
-            return
-        return ScopeDevice.handle_exception(self, exc)
-
-    # Record length (read-only)
-    RecordLength = read_attribute(
-        dtype=int,
-        label="Record length",
-        unit="point",
-        min_value=0,
-        max_value=10**8,
-        format="%d",
-        fget=ScopeDevice.record_length.read,
-        doc="Record length for the waveforms",
-    )
+        return (self.steady_state(DevState.ON) or
+                self.steady_state(DevState.RUNNING))

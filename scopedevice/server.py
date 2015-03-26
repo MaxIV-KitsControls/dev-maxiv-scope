@@ -3,7 +3,8 @@
 # Imports
 import sys
 from PyTango import server
-from scopedevice.device import RTOScope, RTMScope
+from scopedevice.rto import RTOScope
+from scopedevice.rtm import RTMScope
 
 #: Server name as used in the Tango database
 RTO_NAME = "RTOScope"

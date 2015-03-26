@@ -12,7 +12,7 @@ from devicetest import DeviceTestCase
 
 # Constants
 READ = 0.01
-UPDATE = 0.02
+UPDATE = 0.04
 PRECISION = 5
 
 
@@ -22,7 +22,7 @@ PRECISION = 5
 # wait during the tests in order the let the device update itself.
 # Hence, the sleep calls have to be secured enough not to produce
 # any inconsistent behavior. However, the unittests need to run fast.
-# Here, we use a factor 2 between the read period and the sleep calls.
+# Here, we use a factor 4 between the read period and the sleep calls.
 
 
 # Device test case
@@ -161,8 +161,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
         self.assertEquals(DevState.ON, self.device.state())
         self.device.run()
         sleep(UPDATE)
-        print self.device.status()
         self.assertEquals(DevState.RUNNING, self.device.state())
         # Stop device
         self.device.stop()
+        sleep(UPDATE)
         self.assertEquals(DevState.ON, self.device.state())
