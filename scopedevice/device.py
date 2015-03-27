@@ -49,7 +49,7 @@ class ScopeDevice(RequestQueueDevice):
     update_period = 0.2         # Limit the loop frequency when updating
     acquisition_period = 0.005  # Limit loop frequency when acquiring
     waveform_events = True      # Use Tango change events for waveforms
-    settings_events = True      # Use Tango change events for waveforms
+    settings_events = False     # Use Tango change events for waveforms
 
     settings_property = partial(event_property, event="waveform_events")
     waveform_property = partial(event_property, event="settings_events")
