@@ -1,5 +1,4 @@
 tangods-scope
-=============
 ***
 
 Device servers for oscilloscopes.
