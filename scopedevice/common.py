@@ -37,7 +37,10 @@ def attribute(*args, **kwargs):
         kwargs.pop("abs_change", None)
     attr = PyTango.server.attribute(*args, **kwargs)
     if fset:
-        return attr.setter(fset)
+        try:
+            return attr.setter(fset)
+        except AttributeError:
+            pass
     return attr
 
 
