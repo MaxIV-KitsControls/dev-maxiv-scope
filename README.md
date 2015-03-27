@@ -6,7 +6,6 @@ Device servers for oscilloscopes.
 Provide a standard interface along with devices
 for RTO and RTM oscilloscopes.
 
-
 Information
 -----------
 
@@ -25,7 +24,6 @@ Requirement
 
 [rohdescope]: https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope
 
-
 Unit testing
 ------------
 
@@ -36,7 +34,6 @@ Run:
 See the [devicetest][test] library.
 
 [test]: https://github.com/vxgmichel/python-tango-devicetest
-
 
 Documentation
 -------------
@@ -49,7 +46,6 @@ Run:
 See the [devicedoc][doc] library.
 
 [doc]: https://github.com/vxgmichel/python-tango-devicedoc
-
 
 Contact
 -------
