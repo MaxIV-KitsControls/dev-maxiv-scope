@@ -38,13 +38,16 @@ See the [devicetest][test] library.
 Documentation
 -------------
 
-Run:
+A sphinx generated documentation is available [here][pages].
+
+To build it manually, run:
 
     $ python setup.py build_sphinx
     $ sensible-browser docs/build/html/index.html
 
 See the [devicedoc][doc] library.
 
+[pages]: http://maxiv-kitscontrols.github.io/dev-maxiv-scope/
 [doc]: https://github.com/vxgmichel/python-tango-devicedoc
 
 Contact
