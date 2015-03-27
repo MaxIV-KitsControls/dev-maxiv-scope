@@ -1,10 +1,10 @@
-Welcome to dev-maxiv-scope's documentation!
-===========================================
+Welcome to tangods-scope documentation!
+=======================================
 
 Contents:
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
 
    device
    scopes

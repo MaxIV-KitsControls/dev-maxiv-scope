@@ -10,6 +10,6 @@ extensions = ['sphinx.ext.autodoc', 'devicedoc', 'sphinxcontrib.napoleon']
 master_doc = 'index'
 
 # Data
-project = u'dev-maxiv-scope'
-copyright = u'2014, MAXIV'
-release = '3.0.1'
+project = 'tangods-scope'
+copyright = '2015, MAXIV'
+release = '3.2.0'
