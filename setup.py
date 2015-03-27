@@ -6,7 +6,7 @@ from setuptools import setup, Command
 
 
 # Upload documentation on github
-class UploadGhPages(Command):
+class UploadPages(Command):
     """Command to update build and upload sphinx doc to github."""
     user_options = []
 
@@ -69,5 +69,6 @@ setup(name="tangods-scope",
       long_description=safe_read("README.md"),
       packages=["scopedevice"],
       test_suite="nose.collector",
-      scripts=["script/RTOScope", "script/RTMScope"]
+      scripts=["script/RTOScope", "script/RTMScope"],
+      cmdclass={'upload_pages': UploadPages},
       )
