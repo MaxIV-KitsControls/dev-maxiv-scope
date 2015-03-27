@@ -46,11 +46,13 @@ class ScopeDevice(RequestQueueDevice):
     connection_timeout = 2.0    # Communication timeout set in the socket
     instrument_timeout = 2.0    # Communication timeout set in the library
     command_timeout = 2.0       # Timeout on the expert command ExecCommand
-    update_period = 0.2         # Limit the loop frequency while updating
+    update_period = 0.2         # Limit the loop frequency when updating
     acquisition_period = 0.005  # Limit loop frequency when acquiring
-    events = True               # Use Tango change events for waveforms
+    waveform_events = True      # Use Tango change events for waveforms
+    settings_events = True      # Use Tango change events for waveforms
 
-    event_property = partial(event_property, event="events")
+    settings_property = partial(event_property, event="waveform_events")
+    waveform_property = partial(event_property, event="settings_events")
 
 # ------------------------------------------------------------------
 #    Thread methods
@@ -422,7 +424,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Identifier
 
-    identifier = event_property("Identifier")
+    identifier = settings_property("Identifier")
 
     Identifier = read_attribute(
         dtype=str,
@@ -450,7 +452,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Time Range
 
-    time_range = event_property("TimeRange")
+    time_range = settings_property("TimeRange")
 
     TimeRange = rw_attribute(
         dtype=float,
@@ -473,7 +475,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Time Position
 
-    time_position = event_property("TimePosition")
+    time_position = settings_property("TimePosition")
 
     TimePosition = rw_attribute(
         dtype=float,
@@ -496,7 +498,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Record length
 
-    record_length = event_property("RecordLength")
+    record_length = settings_property("RecordLength")
 
     RecordLength = rw_attribute(
         dtype=int,
@@ -518,7 +520,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Time Base
 
-    time_base = event_property("TimeBase")
+    time_base = waveform_property("TimeBase")
 
     TimeBase = read_attribute(
         dtype=(float,),
@@ -535,10 +537,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Channel Enabled
 
-    channel_enabled_1 = event_property("ChannelEnabled1")
-    channel_enabled_2 = event_property("ChannelEnabled2")
-    channel_enabled_3 = event_property("ChannelEnabled3")
-    channel_enabled_4 = event_property("ChannelEnabled4")
+    channel_enabled_1 = settings_property("ChannelEnabled1")
+    channel_enabled_2 = settings_property("ChannelEnabled2")
+    channel_enabled_3 = settings_property("ChannelEnabled3")
+    channel_enabled_4 = settings_property("ChannelEnabled4")
 
     def write_channel_enabled(self, enabled, channel):
         self.enqueue(self.scope.set_channel_enabled, channel, enabled)
@@ -566,10 +568,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Channel Coupling
 
-    channel_coupling_1 = event_property("ChannelCoupling1")
-    channel_coupling_2 = event_property("ChannelCoupling2")
-    channel_coupling_3 = event_property("ChannelCoupling3")
-    channel_coupling_4 = event_property("ChannelCoupling4")
+    channel_coupling_1 = settings_property("ChannelCoupling1")
+    channel_coupling_2 = settings_property("ChannelCoupling2")
+    channel_coupling_3 = settings_property("ChannelCoupling3")
+    channel_coupling_4 = settings_property("ChannelCoupling4")
 
     def write_channel_coupling(self, coupling, channel):
         self.enqueue(self.scope.set_channel_coupling, channel, coupling)
@@ -600,10 +602,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Channel Position
 
-    channel_position_1 = event_property("ChannelPosition1")
-    channel_position_2 = event_property("ChannelPosition2")
-    channel_position_3 = event_property("ChannelPosition3")
-    channel_position_4 = event_property("ChannelPosition4")
+    channel_position_1 = settings_property("ChannelPosition1")
+    channel_position_2 = settings_property("ChannelPosition2")
+    channel_position_3 = settings_property("ChannelPosition3")
+    channel_position_4 = settings_property("ChannelPosition4")
 
     def write_channel_position(self, position, channel):
         self.enqueue(self.scope.set_channel_position, channel, position)
@@ -634,10 +636,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Channel Scale
 
-    channel_scale_1 = event_property("ChannelScale1")
-    channel_scale_2 = event_property("ChannelScale2")
-    channel_scale_3 = event_property("ChannelScale3")
-    channel_scale_4 = event_property("ChannelScale4")
+    channel_scale_1 = settings_property("ChannelScale1")
+    channel_scale_2 = settings_property("ChannelScale2")
+    channel_scale_3 = settings_property("ChannelScale3")
+    channel_scale_4 = settings_property("ChannelScale4")
 
     def write_channel_scale(self, scale, channel):
         self.enqueue(self.scope.set_channel_scale, channel, scale)
@@ -671,10 +673,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Waveforms
 
-    waveform_1 = event_property("Waveform1")
-    waveform_2 = event_property("Waveform2")
-    waveform_3 = event_property("Waveform3")
-    waveform_4 = event_property("Waveform4")
+    waveform_1 = waveform_property("Waveform1")
+    waveform_2 = waveform_property("Waveform2")
+    waveform_3 = waveform_property("Waveform3")
+    waveform_4 = waveform_property("Waveform4")
 
     def waveform_attribute(channel,
                            attrs=[waveform_1, waveform_2,
@@ -695,10 +697,10 @@ class ScopeDevice(RequestQueueDevice):
 
     # Raw waveforms
 
-    raw_waveform_1 = event_property("RawWaveform1")
-    raw_waveform_2 = event_property("RawWaveform2")
-    raw_waveform_3 = event_property("RawWaveform3")
-    raw_waveform_4 = event_property("RawWaveform4")
+    raw_waveform_1 = waveform_property("RawWaveform1")
+    raw_waveform_2 = waveform_property("RawWaveform2")
+    raw_waveform_3 = waveform_property("RawWaveform3")
+    raw_waveform_4 = waveform_property("RawWaveform4")
 
     def raw_waveform_attribute(channel,
                                attrs=[raw_waveform_1, raw_waveform_2,
@@ -723,11 +725,11 @@ class ScopeDevice(RequestQueueDevice):
 
     # Trigger levels
 
-    trigger_level_1 = event_property("TriggerLevel1")
-    trigger_level_2 = event_property("TriggerLevel2")
-    trigger_level_3 = event_property("TriggerLevel3")
-    trigger_level_4 = event_property("TriggerLevel4")
-    trigger_level_5 = event_property("TriggerLevel5")
+    trigger_level_1 = settings_property("TriggerLevel1")
+    trigger_level_2 = settings_property("TriggerLevel2")
+    trigger_level_3 = settings_property("TriggerLevel3")
+    trigger_level_4 = settings_property("TriggerLevel4")
+    trigger_level_5 = settings_property("TriggerLevel5")
 
     def write_trigger_level(self, level, channel):
         self.enqueue(self.scope.set_trigger_level, channel, level)
@@ -759,7 +761,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Trigger slope
 
-    trigger_slope = event_property("TriggerSlope")
+    trigger_slope = settings_property("TriggerSlope")
 
     TriggerSlope = rw_attribute(
         dtype=int,
@@ -780,7 +782,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Trigger source
 
-    trigger_source = event_property("TriggerSource")
+    trigger_source = settings_property("TriggerSource")
 
     TriggerSource = rw_attribute(
         dtype=int,
@@ -804,7 +806,7 @@ class ScopeDevice(RequestQueueDevice):
 
     # Trigger Coupling
 
-    trigger_coupling = event_property("TriggerCoupling")
+    trigger_coupling = settings_property("TriggerCoupling")
 
     TriggerCoupling = rw_attribute(
         dtype=int,
