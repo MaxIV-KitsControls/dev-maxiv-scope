@@ -2,7 +2,10 @@ tangods-scope
 =============
 ***
 
-Device servers for the Rohde and Schwarz oscilloscopes.
+Device servers for oscilloscopes.
+
+Provide a standard interface along with devices
+for RTO and RTM oscilloscopes.
 
 
 Information
