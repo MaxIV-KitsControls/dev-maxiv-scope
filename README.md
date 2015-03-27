@@ -12,9 +12,17 @@ Information
  - Import:  scopedevice
  - Servers: RTMScope, RTOScope
  - Devices: RTMScope, RTOScope
- - Repo:    [dev-maxiv-scope][repo]
+ - Repo:    [dev-maxiv-scope][scope]
 
-[repo]: https://gitorious.maxlab.lu.se/kits-maxiv/dev-maxiv-scope/
+[scope]: https://github.com/MaxIV-KitsControls/dev-maxiv-scope/
+
+Requirement
+-----------
+
+ - library: [lib-maxiv-rohdescope][rohdescope] >= 0.4.2
+
+[rohdescope]: https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope
+
 
 Unit testing
 ------------
