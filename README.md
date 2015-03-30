@@ -24,6 +24,26 @@ Requirement
 
 [rohdescope]: https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope
 
+Installation
+------------
+
+    $ python setup.py install
+
+Usage
+-----
+
+For RTM oscilloscope, run:
+
+    $ RTMScope my_instance                     # If installed, or
+    $ python -m scopedevice.rtm my_instance    # Or
+    $ python -m scopedevice --rtm my_instance  #
+
+For RTO oscilloscope, run:
+
+    $ RTOScope my_instance                     # If installed, or
+    $ python -m scopedevice.rto my_instance    # Or
+    $ python -m scopedevice --rto my_instance  #
+
 Unit testing
 ------------
 
