@@ -30,6 +30,7 @@ class RTOScope(ScopeDevice):
     def clean_acquisition(self):
         """Clean the acquisition."""
         ScopeDevice.clean_acquisition(self)
+        self.scope.issue_stop()
         self.scope.set_display(True)
 
     # Turn on the display
