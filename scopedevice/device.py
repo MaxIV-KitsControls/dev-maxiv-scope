@@ -45,12 +45,10 @@ class ScopeDevice(RequestQueueDevice):
     callback_timeout = 0.5      # Communication timeout set in the scope
     connection_timeout = 2.0    # Communication timeout set in the socket
     instrument_timeout = 2.0    # Communication timeout set in the library
-    command_timeout = 2.0       # Timeout on the expert command ExecCommand
-    update_period = 0.2         # Limit the loop frequency when updating
+    update_period = 0.25        # Limit the loop frequency when updating
     acquisition_period = 0.005  # Limit loop frequency when acquiring
-    waveform_events = True      # Use Tango change events for waveforms
-    settings_events = False     # Use Tango change events for waveforms
 
+    # Event properties
     settings_property = partial(event_property, event="waveform_events")
     waveform_property = partial(event_property, event="settings_events")
 
@@ -272,7 +270,8 @@ class ScopeDevice(RequestQueueDevice):
         channels = list(self.channels)
         if external:
             channels += [5]
-        return mapping(self, base + '_', channels)
+        convert = lambda arg: base + '_' + str(arg)
+        return mapping(self, convert, channels)
 
 # ------------------------------------------------------------------
 #    State methods
@@ -351,15 +350,18 @@ class ScopeDevice(RequestQueueDevice):
     def init_device(self):
         """Initialize instance attributes and start the thread."""
         RequestQueueDevice.init_device(self)
+        # Save properties
+        self.host = self.Host
+        self.waveform_events = self.WaveformEvents
+        self.settings_events = self.SettingsEvents
+        # Misc. attributes
+        self.linspace_args = None
+        self.stamp = time()
+        self.error = ""
         # Thread attribute
         self.scope_thread = Thread(target=self.scope_loop)
         self.decoding_thread = Thread(target=self.decoding_loop)
         self.decoding_queue = Queue()
-        # Misc. attributes
-        self.linspace_args = None
-        self.waiting = False
-        self.stamp = time()
-        self.error = ""
         # Mapping attributes
         self.waveforms = self.channel_mapping("waveform")
         self.raw_waveforms = self.channel_mapping("raw_waveform")
@@ -373,23 +375,28 @@ class ScopeDevice(RequestQueueDevice):
         connection_ms = int(self.connection_timeout * 1000)
         instrument_ms = int(self.instrument_timeout * 1000)
         callback = self.scope_callback
-        kwargs = {'host': self.Host,
+        kwargs = {'host': self.host,
                   'callback_timeout': callback_ms,
                   'connection_timeout': connection_ms,
                   'instrument_timeout': instrument_ms,
                   'callback': callback}
         self.scope = self.connection_class(**kwargs)
-        # Push events
-        self.update_time_base()
         # Run thread
         self.scope_thread.start()
         self.decoding_thread.start()
+        # Check host name
+        if not self.host:
+            self.error = "The Host name is not defined."
+            self.set_state(DevState.FAULT)
+            return
         # Set state
         self.set_state(PyTango.DevState.STANDBY)
 
     @debug_it
     def delete_device(self):
         """Try to stop the thread."""
+        self.waveform_events = False
+        self.settings_events = False
         RequestQueueDevice.delete_device(self)
         self.stop_scope_thread()
         self.stop_decoding_thread()
@@ -407,7 +414,7 @@ class ScopeDevice(RequestQueueDevice):
         """Stop the decoding thread."""
         self.decoding_queue.put(None)
         self.debug_stream("Joining the decoding thread...")
-        self.decoding_thread.join()
+        self.decoding_thread.join(self.callback_timeout)
 
 # ------------------------------------------------------------------
 #    General properties
@@ -416,6 +423,18 @@ class ScopeDevice(RequestQueueDevice):
     Host = device_property(
         dtype=str,
         doc="Host name of the scope",
+        )
+
+    WaveformEvents = device_property(
+        dtype=bool,
+        default_value=True,
+        doc="Enable TANGO change events for waveforms.",
+        )
+
+    SettingsEvents = device_property(
+        dtype=bool,
+        default_value=False,
+        doc="Enable TANGO change events for scope settings.",
         )
 
 # ------------------------------------------------------------------
@@ -850,10 +869,10 @@ class ScopeDevice(RequestQueueDevice):
     def is_Stop_allowed(self):
         return self.steady_state(DevState.RUNNING)
 
-    # On command
+    # Connect command
 
     @command
-    def On(self):
+    def Connect(self):
         """Connect to the scope. Available in STANDBY state."""
         self.enqueue_transition(DevState.STANDBY, DevState.ON,
                                 self.connect)
@@ -861,10 +880,10 @@ class ScopeDevice(RequestQueueDevice):
     def is_On_allowed(self):
         return self.steady_state(DevState.STANDBY)
 
-    # Standby command
+    # Disconnect command
 
     @command
-    def Standby(self):
+    def Disconnect(self):
         """Disconnect from the scope. Available in STANDBY state."""
         self.enqueue_transition(DevState.ON, DevState.STANDBY,
                                 self.disconnect)
@@ -884,36 +903,14 @@ class ScopeDevice(RequestQueueDevice):
     def Execute(self, command):
         """Execute a custom command. Available in ON and RUNNING state."""
         command = " ".join(command)
-        # Check report queue
-        if self.report_queue:
-            msg = "A command is already being executed"
-            raise RuntimeError(msg)
-        # Set state
-        self.events = False
-        self.waiting = True
-        # Equeue command
-        self.enqueue(self.scope.issue_command, command, report=True)
-        # Handle command timeout
-        start = time()
-        while time() - start < self.command_timeout:
-            # Apply a minimal period
-            with tick_context(self.update_period):
-                # Try to get the report
-                try:
-                    result = self.report_queue.pop()
-                    break
-                # Wait for the report
-                except IndexError:
-                    continue
-        # Timeout case
-        else:
-            result = "No response from the scope"
-            result += " (timeout = {0:3.1f} s)".format(self.command_timeout)
-        # Restore state
-        self.waiting = False
-        self.events = ScopeDevice.events
-        # Return
-        return str(result)
+        # Run command
+        try:
+            return str(self.scope.issue_command(command))
+        except Vxi11Exception as exc:
+            if exc.err != 15:
+                return repr(exc)
+            msg = "No response from the scope (timeout = {0:3.1f} s)"
+            return msg.format(self.instrument_timeout)
 
     def is_Execute_allowed(self):
         return (self.steady_state(DevState.ON) or
