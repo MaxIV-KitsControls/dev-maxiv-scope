@@ -204,11 +204,12 @@ class event_property(object):
     VALID = AttrQuality.ATTR_VALID
 
     def __init__(self, attribute, default=None, invalid=None,
-                 is_allowed=None, event=True, doc=None):
+                 is_allowed=None, event=True, dtype=None, doc=None):
         self.attribute = attribute
         self.default = default
         self.invalid = invalid
         self.event = event
+        self.dtype = dtype
         self.__doc__ = doc
         default = getattr(attribute, "is_allowed_name", "")
         self.is_allowed = is_allowed or default
@@ -267,6 +268,10 @@ class event_property(object):
     @classmethod
     def unpack(cls, value):
         try:
+            value.stamp = value.time.totime()
+        except AttributeError:
+            pass
+        try:
             return value.value, value.stamp, value.quality
         except AttributeError:
             pass
@@ -281,6 +286,8 @@ class event_property(object):
         return value, None, None
 
     def check_value(self, device, value, stamp, quality):
+        if self.dtype:
+            value = self.dtype(value)
         if value != self.invalid:
             return value, stamp, quality
         return self.get_default_value(device), stamp, self.INVALID
@@ -288,6 +295,8 @@ class event_property(object):
     def get_default_value(self, device):
         if self.default != self.invalid:
             return self.default
+        if self.dtype:
+            return self.dtype()
         attr = getattr(device, self.get_attribute_name())
         if attr.get_data_type() == PyTango.DevString:
             return str()
@@ -310,7 +319,7 @@ class event_property(object):
     def __set__(self, instance, value):
         return self.setter(instance, value)
 
-    def __del__(self, instance):
+    def __delete__(self, instance):
         return self.deleter(instance)
 
     # Access methods
@@ -331,7 +340,7 @@ class event_property(object):
         self.set_value(device, *self.check_value(*args))
 
     def deleter(self, device):
-        self.delete_all(device)
+        self.reloader(device)
 
     def reloader(self, device=None, reset=True):
         # Prevent class calls
@@ -339,7 +348,7 @@ class event_property(object):
             return
         # Delete attributes
         if reset:
-            self.deleter(device)
+            self.delete_all(device)
         # Set quality
         if not self.allowed(device):
             self.set_value(device, quality=self.INVALID,
@@ -408,26 +417,41 @@ class event_property(object):
 class mapping(Mapping):
     """Mapping object to gather python attributes."""
 
-    def __init__(self, instance, base, keys):
-        self.base = base
-        self.keys = keys
+    def clear(self):
+        for x in self:
+            del self[x]
+
+    def __init__(self, instance, convert, keys):
+        self.keys = list(keys)
+        self.convert = convert
         self.instance = instance
 
     def __getitem__(self, key):
         if key not in self.keys:
             raise KeyError(key)
-        return getattr(self.instance, self.base + str(key))
+        return getattr(self.instance, self.convert(key))
 
     def __setitem__(self, key, value):
         if key not in self.keys:
             raise KeyError(key)
-        setattr(self.instance, self.base + str(key), value)
+        setattr(self.instance, self.convert(key), value)
+
+    def __delitem__(self, key):
+        if key not in self.keys:
+            raise KeyError(key)
+        delattr(self.instance, self.convert(key))
 
     def __iter__(self):
         return iter(self.keys)
 
     def __len__(self):
         return len(self.keys)
+
+    def __str__(self):
+        return str(dict(self.items()))
+
+    def __repr__(self):
+        return repr(dict(self.items()))
 
 
 # Request queue device class
@@ -450,9 +474,6 @@ class RequestQueueDevice(PyTango.server.Device):
         self.request_queue = collections.deque()
         self.awake = LockEvent()
         self.alive = True
-        # Report queue
-        self.report_queue = collections.deque(maxlen=1)
-        self.reporting = False
 
     def delete_device(self):
         PyTango.server.Device.delete_device(self)
@@ -504,8 +525,7 @@ class RequestQueueDevice(PyTango.server.Device):
 
     def enqueue(self, func, *args, **kwargs):
         """Enqueue a task to be process by the thread."""
-        report = kwargs.pop('report', False)
-        item = func, args, kwargs, report
+        item = func, args, kwargs
         try:
             append = (item != self.request_queue[-1])
         except IndexError:
@@ -551,15 +571,12 @@ class RequestQueueDevice(PyTango.server.Device):
             except IndexError:
                 break
             # Unpack item
-            func, args, kwargs, self.reporting = item
+            func, args, kwargs = item
             # Process item
             try:
-                result = func(*args, **kwargs)
-                if self.reporting:
-                    self.report_queue.append(result)
+                func(*args, **kwargs)
             # Remove item
             finally:
-                self.reporting = False
                 self.request_queue.popleft()
 
 # ------------------------------------------------------------------
