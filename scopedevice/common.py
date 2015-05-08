@@ -11,11 +11,25 @@ from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
 from collections import Mapping, namedtuple
-from PyTango import AttrQuality, AttReqType
+from PyTango import AttrQuality, AttReqType, server
 
 # Stamped tuple
 _stamped = namedtuple("stamped", ("value", "stamp", "quality"))
 stamped = functools.partial(_stamped, quality=AttrQuality.ATTR_VALID)
+
+
+# Tango objects
+def is_tango_object(arg):
+    """Return tango data if the argument is a tango object,
+    False otherwise.
+    """
+    classes = server.attribute, server.device_property
+    if isinstance(arg, classes):
+        return arg
+    try:
+        return arg.__tango_command__
+    except AttributeError:
+        return False
 
 
 # Patched version of partial
@@ -50,8 +64,7 @@ def DeviceMeta(name, bases, attrs):
     that supports inheritance.
     """
     # Save current attrs
-    save_key = '_save_attrs'
-    dct = {save_key: attrs}
+    dct = {}
     # Filter object from bases
     filt = lambda arg: arg != object
     bases = tuple(filter(filt, bases))
@@ -60,7 +73,9 @@ def DeviceMeta(name, bases, attrs):
         bases += (PyTango.server.Device,)
     # Update attribute dictionary
     for base in reversed(bases):
-        dct.update(getattr(base, save_key, {}))
+        for key, value in base.__dict__.items():
+            if is_tango_object(value):
+                dct[key] = value
     dct.update(attrs)
     # Create device class
     cls = PyTango.server.DeviceMeta(name, bases, dct)
