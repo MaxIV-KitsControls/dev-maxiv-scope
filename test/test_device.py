@@ -30,7 +30,9 @@ class ScopeDeviceTestCase(DeviceTestCase):
     """Test case for packet generation."""
 
     device = scopedevice.ScopeDevice
-    properties = {'Host': '1.2.3.4'}
+    properties = {'Host': '1.2.3.4',
+                  'SettingsEvents': False,
+                  'WaveformEvents': False}
     empty = None  # Should be []
     debug = 0
 
@@ -76,8 +78,6 @@ class ScopeDeviceTestCase(DeviceTestCase):
         is_connected = lambda *args: cls.instrument.connect.called
         cls.instrument.connected.__get__ = is_connected
         # Set up
-        scopedevice.ScopeDevice.waveform_events = False
-        scopedevice.ScopeDevice.settings_events = False
         scopedevice.ScopeDevice.acquisition_period = READ
         scopedevice.ScopeDevice.update_period = READ
         cls.instrument.get_status.return_value = "Some status."
@@ -89,7 +89,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
     def setUp(self):
         """Let the inner thread initialize the device."""
         DeviceTestCase.setUp(self)
-        self.device.On()
+        self.device.Connect()
         sleep(UPDATE)
 
     def test_properties(self):
