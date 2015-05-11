@@ -113,17 +113,17 @@ class ScopeDeviceTestCase(DeviceTestCase):
                                "get_channel_coupling", "set_channel_coupling")
 
     def test_position(self):
-        self.attribute_pattern("ChannelPosition", [-4.3, 1.25],
+        self.attribute_pattern("ChannelPosition", [0, 1.25],
                                "get_channel_position", "set_channel_position")
 
     def test_scale(self):
-        self.attribute_pattern("ChannelScale", [-4.3, 1.25],
+        self.attribute_pattern("ChannelScale", [0.2, 1.25],
                                "get_channel_scale", "set_channel_scale")
 
     def test_range(self):
         write_range = 0.1
         expected_args = -0.05, 0.05, 0
-        read_scale = [x*0.1 for x in range(100)]
+        read_scale = [1 + x*0.1 for x in range(100)]
         # Write range
         self.assertEqual(self.device.TimeBase, self.empty)
         self.numpy.linspace.return_value = read_scale
@@ -135,14 +135,14 @@ class ScopeDeviceTestCase(DeviceTestCase):
         arg = self.instrument.set_time_range.call_args[0][0]
         self.assertEqual(write_range, arg)
         self.numpy.linspace.assert_called_with(*expected_args)
-        self.assertEqual(self.device.TimeBase.tolist(), read_scale)
+        self.assertEqual(list(self.device.TimeBase), read_scale)
         # Change read scale
-        new_read_scale = [x*0.2 for x in range(100)]
+        new_read_scale = [1 + x*0.2 for x in range(100)]
         self.numpy.linspace.return_value = new_read_scale
         # Wait
         sleep(UPDATE)
         # No change detected
-        self.assertEqual(self.device.TimeBase.tolist(), read_scale)
+        self.assertEqual(list(self.device.TimeBase), read_scale)
         # Change range return value
         write_range = 0.01
         expected_args = -0.005, 0.005, 0
@@ -151,7 +151,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
         sleep(UPDATE)
         # Change detected
         self.numpy.linspace.assert_called_with(*expected_args)
-        self.assertEqual(self.device.TimeBase.tolist(), new_read_scale)
+        self.assertEqual(list(self.device.TimeBase), new_read_scale)
 
     def test_acquisition(self):
         # Check initial state
