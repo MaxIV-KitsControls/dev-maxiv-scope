@@ -1,6 +1,7 @@
 """Common functions for the scope devices."""
 
 # Imports
+import sys
 import weakref
 import PyTango
 import functools
@@ -32,6 +33,53 @@ def is_tango_object(arg):
         return False
 
 
+# Run server class method
+@classmethod
+def run_server(cls, args=None, **kwargs):
+    """Run the class as a device server.
+    It is based on the PyTango.server.run method.
+
+    The difference is that the device class
+    and server name are automatically given.
+
+    Args:
+        args (iterable): args as given in the PyTango.server.run method
+                         without the server name. If None, the sys.argv
+                         list is used
+        kwargs: the other keywords argument are as given
+                in the PyTango.server.run method.
+    """
+    if not args:
+        args = sys.argv[1:]
+    args = [cls.__name__] + list(args)
+    return server.run((cls,), args, **kwargs)
+
+
+# DeviceMeta metaclass
+def DeviceMeta(name, bases, attrs):
+    """Enhanced version of PyTango.server.DeviceMeta
+    that supports inheritance.
+    """
+    # Attribute dictionary
+    dct = {"run_server": run_server}
+    # Filter object from bases
+    bases = tuple(base for base in bases if base != object)
+    # Add device to bases
+    if PyTango.server.Device not in bases:
+        bases += (PyTango.server.Device,)
+    # Set tango objects as attributes
+    for base in reversed(bases):
+        for key, value in base.__dict__.items():
+            if is_tango_object(value):
+                dct[key] = value
+    # Update attribute dictionary
+    dct.update(attrs)
+    # Create device class
+    cls = PyTango.server.DeviceMeta(name, bases, dct)
+    cls.TangoClassName = name
+    return cls
+
+
 # Patched version of partial
 def partial(func, *args, **kwargs):
     """Partial for tango attribute accessors"""
@@ -56,31 +104,6 @@ def attribute(*args, **kwargs):
         except AttributeError:
             pass
     return attr
-
-
-# DeviceMeta metaclass
-def DeviceMeta(name, bases, attrs):
-    """Enhanced version of PyTango.server.DeviceMeta
-    that supports inheritance.
-    """
-    # Save current attrs
-    dct = {}
-    # Filter object from bases
-    filt = lambda arg: arg != object
-    bases = tuple(filter(filt, bases))
-    # Add device to bases
-    if PyTango.server.Device not in bases:
-        bases += (PyTango.server.Device,)
-    # Update attribute dictionary
-    for base in reversed(bases):
-        for key, value in base.__dict__.items():
-            if is_tango_object(value):
-                dct[key] = value
-    dct.update(attrs)
-    # Create device class
-    cls = PyTango.server.DeviceMeta(name, bases, dct)
-    cls.TangoClassName = name
-    return cls
 
 
 # Lock Event

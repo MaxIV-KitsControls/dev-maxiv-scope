@@ -2,57 +2,16 @@
 
 # Imports
 import sys
-from PyTango import server
 from scopedevice.rto import RTOScope
 from scopedevice.rtm import RTMScope
 
 #: Server name as used in the Tango database
-RTO_NAME = "RTOScope"
+RTO_NAME = RTOScope.__class__
+run_rto = RTOScope.run_server
 
 #: Server name as used in the Tango database
-RTM_NAME = "RTMScope"
-
-
-# Run function
-def run_rto(args=None, **kwargs):
-    """Run the RTO oscilloscope.
-    It is based on the PyTango.server.run method.
-
-    The diffrence is that the device class
-    and server name are automatically given.
-
-    Args:
-        args (iterable): args as given in the PyTango.server.run method
-                         without the server name. If None, the sys.argv
-                         list is used
-        kwargs: the other keywords argument are as given
-                in the PyTango.server.run method.
-    """
-    if not args:
-        args = sys.argv[1:]
-    args = [RTO_NAME] + list(args)
-    server.run((RTOScope,), args, **kwargs)
-
-
-# Run function
-def run_rtm(args=None, **kwargs):
-    """Run the RTM oscilloscope.
-    It is based on the PyTango.server.run method.
-
-    The diffrence is that the device class
-    and server name are automatically given.
-
-    Args:
-        args (iterable): args as given in the PyTango.server.run method
-                         without the server name. If None, the sys.argv
-                         list is used
-        kwargs: the other keywords argument are as given
-                in the PyTango.server.run method.
-    """
-    if not args:
-        args = sys.argv[1:]
-    args = [RTM_NAME] + list(args)
-    server.run((RTMScope,), args, **kwargs)
+RTM_NAME = RTMScope.__class__
+run_rtm = RTMScope.run_server
 
 
 # Run function

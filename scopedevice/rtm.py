@@ -52,5 +52,4 @@ class RTMScope(ScopeDevice):
 
 # Main execution
 if __name__ == "__main__":
-    import scopedevice
-    scopedevice.run_rtm()
+    RTMScope.run_server()

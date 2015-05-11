@@ -96,5 +96,4 @@ class RTOScope(ScopeDevice):
 
 # Main execution
 if __name__ == "__main__":
-    import scopedevice
-    scopedevice.run_rto()
+    RTOScope.run_server()
