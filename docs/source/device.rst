@@ -124,13 +124,13 @@ Trigger levels
 Commands
 ########
 
-.. autotangoitem:: scopedevice.ScopeDevice.On
+.. autotangoitem:: scopedevice.ScopeDevice.Connect
 
 .. autotangoitem:: scopedevice.ScopeDevice.Run
 
 .. autotangoitem:: scopedevice.ScopeDevice.Stop
 
-.. autotangoitem:: scopedevice.ScopeDevice.Standby
+.. autotangoitem:: scopedevice.ScopeDevice.Disconnect
 
 .. autotangoitem:: scopedevice.ScopeDevice.Execute
 

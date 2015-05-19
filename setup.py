@@ -43,7 +43,7 @@ class UploadPages(Command):
         # Git commit
         local('git commit -m "build sphinx" ')
         # Git push
-        local('git push --set-upstream origin gh-pages -f ')
+        local('git push --set-upstream github gh-pages -f ')
         # Back to master
         local('git checkout master -f ')
         # Delete branch
