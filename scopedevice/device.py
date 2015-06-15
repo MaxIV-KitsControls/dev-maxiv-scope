@@ -49,8 +49,8 @@ class ScopeDevice(RequestQueueDevice):
     acquisition_period = 0.005  # Limit loop frequency when acquiring
 
     # Event properties
-    settings_property = partial(event_property, event="waveform_events")
-    waveform_property = partial(event_property, event="settings_events")
+    settings_property = partial(event_property, event="SettingsEvents")
+    waveform_property = partial(event_property, event="WaveformEvents")
 
 # ------------------------------------------------------------------
 #    Thread methods
@@ -337,23 +337,10 @@ class ScopeDevice(RequestQueueDevice):
 #    Initialization methods
 # ------------------------------------------------------------------
 
-    def update_attributes(self, reset=False):
-        """Reload attribute values."""
-        cls = type(self)
-        for name in dir(cls):
-            try:
-                getattr(cls, name).reloader(self, reset)
-            except AttributeError:
-                pass
-
     @debug_it
     def init_device(self):
         """Initialize instance attributes and start the thread."""
         RequestQueueDevice.init_device(self)
-        # Save properties
-        self.host = self.Host
-        self.waveform_events = self.WaveformEvents
-        self.settings_events = self.SettingsEvents
         # Misc. attributes
         self.linspace_args = None
         self.stamp = time()
@@ -375,7 +362,7 @@ class ScopeDevice(RequestQueueDevice):
         connection_ms = int(self.connection_timeout * 1000)
         instrument_ms = int(self.instrument_timeout * 1000)
         callback = self.scope_callback
-        kwargs = {'host': self.host,
+        kwargs = {'host': self.Host,
                   'callback_timeout': callback_ms,
                   'connection_timeout': connection_ms,
                   'instrument_timeout': instrument_ms,
@@ -385,7 +372,7 @@ class ScopeDevice(RequestQueueDevice):
         self.scope_thread.start()
         self.decoding_thread.start()
         # Check host name
-        if not self.host:
+        if not self.Host:
             self.error = "The Host name is not defined."
             self.set_state(DevState.FAULT)
             return
@@ -395,8 +382,8 @@ class ScopeDevice(RequestQueueDevice):
     @debug_it
     def delete_device(self):
         """Try to stop the thread."""
-        self.waveform_events = False
-        self.settings_events = False
+        self.WaveformEvents = False
+        self.SettingsEvents = False
         RequestQueueDevice.delete_device(self)
         self.stop_scope_thread()
         self.stop_decoding_thread()
