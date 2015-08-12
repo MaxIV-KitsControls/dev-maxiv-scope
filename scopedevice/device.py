@@ -226,10 +226,6 @@ class ScopeDevice(RequestQueueDevice):
         if not self.alive:
             msg = "Stopping the thread..."
             raise StopIO(msg)
-        # Stop reporting
-        if exc and self.reporting and not self.waiting:
-            msg = "Stop reporting..."
-            raise StopIO(msg)
 
     def update_scope_status(self):
         """Update instrument status and time stamp"""
@@ -243,7 +239,7 @@ class ScopeDevice(RequestQueueDevice):
     @debug_it
     def handle_exception(self, exc):
         """Process an exception raised during the thread execution."""
-        # Ignore StopReporting and StopAcquiring exception
+        # Ignore StopIO exception
         if isinstance(exc, StopIO):
             self.warn_stream(str(exc))
             return
