@@ -8,6 +8,10 @@ Properties
 
 .. autotangoitem:: scopedevice.ScopeDevice.Host
 
+.. autotangoitem:: scopedevice.ScopeDevice.WaveformEvents
+
+.. autotangoitem:: scopedevice.ScopeDevice.SettingsEvents
+
 Attributes
 ##########
 
@@ -119,7 +123,6 @@ Trigger levels
 .. autotangoitem:: scopedevice.ScopeDevice.TriggerLevel3
 
 .. autotangoitem:: scopedevice.ScopeDevice.TriggerLevel4
-
 
 Commands
 ########
