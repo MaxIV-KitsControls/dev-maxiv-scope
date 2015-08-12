@@ -502,7 +502,7 @@ class mapping(Mapping):
 
 # Request queue device class
 class RequestQueueDevice(PyTango.server.Device):
-    """Generic class implementing queues and state transiions."""
+    """Generic class implementing queues and state transitions."""
     __metaclass__ = DeviceMeta
 
 # ------------------------------------------------------------------
