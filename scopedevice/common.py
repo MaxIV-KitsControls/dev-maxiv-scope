@@ -58,11 +58,12 @@ def run_server(cls, args=None, **kwargs):
 # Inheritance patch
 def inheritance_patch(attrs):
     """Patch tango objects before they are processed."""
-    for obj in attrs.values():
+    for key, obj in attrs.items():
         if isinstance(obj, server.attribute):
             if obj.attr_write == AttrWriteType.READ_WRITE:
                 if not getattr(obj, 'fset', None):
-                    obj.fset = attrs.get(obj.write_method_name)
+                    method_name = obj.write_method_name or "write_" + key
+                    obj.fset = attrs.get(method_name)
 
 
 # DeviceMeta metaclass
