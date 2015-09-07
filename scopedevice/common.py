@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from timeit import default_timer as time
 from threading import _Condition, _Event
 from collections import Mapping, namedtuple
-from PyTango import AttrQuality, AttReqType, server
+from PyTango import AttrQuality, AttReqType, AttrWriteType, server
 
 # Stamped tuple
 _stamped = namedtuple("stamped", ("value", "stamp", "quality"))
@@ -55,6 +55,16 @@ def run_server(cls, args=None, **kwargs):
     return server.run((cls,), args, **kwargs)
 
 
+# Inheritance patch
+def inheritance_patch(attrs):
+    """Patch tango objects before they are processed."""
+    for obj in attrs.values():
+        if isinstance(obj, server.attribute):
+            if obj.attr_write == AttrWriteType.READ_WRITE:
+                if not getattr(obj, 'fset', None):
+                    obj.fset = attrs.get(obj.write_method_name)
+
+
 # DeviceMeta metaclass
 def DeviceMeta(name, bases, attrs):
     """Enhanced version of PyTango.server.DeviceMeta
@@ -72,6 +82,8 @@ def DeviceMeta(name, bases, attrs):
         for key, value in base.__dict__.items():
             if is_tango_object(value):
                 dct[key] = value
+    # Inheritance patch
+    inheritance_patch(attrs)
     # Update attribute dictionary
     dct.update(attrs)
     # Create device class
