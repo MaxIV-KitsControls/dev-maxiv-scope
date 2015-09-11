@@ -1,0 +1,884 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ScopeDevice Documentation &mdash; tangods-scope  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="tangods-scope  documentation" href="index.html" />
+    <link rel="next" title="Supported scopes" href="scopes.html" />
+    <link rel="prev" title="Welcome to tangods-scope documentation!" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="scopedevice-documentation">
+<h1>ScopeDevice Documentation<a class="headerlink" href="#scopedevice-documentation" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="scopedevice.ScopeDevice">
+<em class="property">class </em><code class="descclassname">scopedevice.</code><code class="descname">ScopeDevice</code><a class="headerlink" href="#scopedevice.ScopeDevice" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generic class for scope devices.</p>
+</dd></dl>
+
+<div class="section" id="properties">
+<h2>Properties<a class="headerlink" href="#properties" title="Permalink to this headline">¶</a></h2>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Host">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Host</code><a class="headerlink" href="#scopedevice.ScopeDevice.Host" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Device property:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : str</div>
+</div>
+</dd>
+</dl>
+<p>Host name of the scope</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.WaveformEvents">
+<code class="descclassname">ScopeDevice.</code><code class="descname">WaveformEvents</code><a class="headerlink" href="#scopedevice.ScopeDevice.WaveformEvents" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Device property:</dt>
+<dd><div class="first last line-block">
+<div class="line">- default_value : True</div>
+<div class="line">- dtype : bool</div>
+</div>
+</dd>
+</dl>
+<p>Enable TANGO change events for waveforms.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.SettingsEvents">
+<code class="descclassname">ScopeDevice.</code><code class="descname">SettingsEvents</code><a class="headerlink" href="#scopedevice.ScopeDevice.SettingsEvents" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Device property:</dt>
+<dd><div class="first last line-block">
+<div class="line">- default_value : False</div>
+<div class="line">- dtype : bool</div>
+</div>
+</dd>
+</dl>
+<p>Enable TANGO change events for scope settings.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="attributes">
+<h2>Attributes<a class="headerlink" href="#attributes" title="Permalink to this headline">¶</a></h2>
+<div class="section" id="general-attributes">
+<h3>General attributes<a class="headerlink" href="#general-attributes" title="Permalink to this headline">¶</a></h3>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Identifier">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Identifier</code><a class="headerlink" href="#scopedevice.ScopeDevice.Identifier" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : str</div>
+</div>
+</dd>
+</dl>
+<p>Instrument identification</p>
+</dd></dl>
+
+</div>
+<div class="section" id="time-attributes">
+<h3>Time attributes<a class="headerlink" href="#time-attributes" title="Permalink to this headline">¶</a></h3>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TimeRange">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TimeRange</code><a class="headerlink" href="#scopedevice.ScopeDevice.TimeRange" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %.1e</div>
+<div class="line">- label : Time range</div>
+<div class="line">- max_value : 1.0</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 1e-08</div>
+<div class="line">- unit : s</div>
+</div>
+</dd>
+</dl>
+<p>Horizontal time range</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TimePosition">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TimePosition</code><a class="headerlink" href="#scopedevice.ScopeDevice.TimePosition" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %.1e</div>
+<div class="line">- label : Time position</div>
+<div class="line">- max_value : 1.0</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : -1.0</div>
+<div class="line">- unit : s</div>
+</div>
+</dd>
+</dl>
+<p>Horizontal time position</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.RecordLength">
+<code class="descclassname">ScopeDevice.</code><code class="descname">RecordLength</code><a class="headerlink" href="#scopedevice.ScopeDevice.RecordLength" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- format : %d</div>
+<div class="line">- label : Record length</div>
+<div class="line">- max_value : 100000000</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+<div class="line">- unit : point</div>
+</div>
+</dd>
+</dl>
+<p>Record length for the waveforms</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TimeBase">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TimeBase</code><a class="headerlink" href="#scopedevice.ScopeDevice.TimeBase" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- label : Time base</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : s</div>
+</div>
+</dd>
+</dl>
+<p>Time base value table</p>
+</dd></dl>
+
+</div>
+<div class="section" id="channel-attributes">
+<h3>Channel attributes<a class="headerlink" href="#channel-attributes" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="channel-enabled">
+<h4>Channel enabled<a class="headerlink" href="#channel-enabled" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelEnabled1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelEnabled1</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelEnabled1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : bool</div>
+<div class="line">- label : Channel enabled 1</div>
+<div class="line">- memorized : True</div>
+</div>
+</dd>
+</dl>
+<p>Channel 1 status (enabled or disabled)</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelEnabled2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelEnabled2</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelEnabled2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : bool</div>
+<div class="line">- label : Channel enabled 2</div>
+<div class="line">- memorized : True</div>
+</div>
+</dd>
+</dl>
+<p>Channel 2 status (enabled or disabled)</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelEnabled3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelEnabled3</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelEnabled3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : bool</div>
+<div class="line">- label : Channel enabled 3</div>
+<div class="line">- memorized : True</div>
+</div>
+</dd>
+</dl>
+<p>Channel 3 status (enabled or disabled)</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelEnabled4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelEnabled4</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelEnabled4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : bool</div>
+<div class="line">- label : Channel enabled 4</div>
+<div class="line">- memorized : True</div>
+</div>
+</dd>
+</dl>
+<p>Channel 4 status (enabled or disabled)</p>
+</dd></dl>
+
+</div>
+<div class="section" id="channel-coupling">
+<h4>Channel coupling<a class="headerlink" href="#channel-coupling" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelCoupling1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelCoupling1</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelCoupling1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- label : Channel coupling 1</div>
+<div class="line">- max_value : 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+</div>
+</dd>
+</dl>
+<p>0 for DC, 1 for AC, 2 for DCLimit, 3 for ACLimit</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelCoupling2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelCoupling2</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelCoupling2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- label : Channel coupling 2</div>
+<div class="line">- max_value : 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+</div>
+</dd>
+</dl>
+<p>0 for DC, 1 for AC, 2 for DCLimit, 3 for ACLimit</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelCoupling3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelCoupling3</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelCoupling3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- label : Channel coupling 3</div>
+<div class="line">- max_value : 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+</div>
+</dd>
+</dl>
+<p>0 for DC, 1 for AC, 2 for DCLimit, 3 for ACLimit</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelCoupling4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelCoupling4</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelCoupling4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- label : Channel coupling 4</div>
+<div class="line">- max_value : 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+</div>
+</dd>
+</dl>
+<p>0 for DC, 1 for AC, 2 for DCLimit, 3 for ACLimit</p>
+</dd></dl>
+
+</div>
+<div class="section" id="channel-positions">
+<h4>Channel positions<a class="headerlink" href="#channel-positions" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelPosition1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelPosition1</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelPosition1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel position 1</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelPosition2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelPosition2</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelPosition2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel position 2</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelPosition3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelPosition3</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelPosition3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel position 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelPosition4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelPosition4</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelPosition4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel position 4</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 4</p>
+</dd></dl>
+
+</div>
+<div class="section" id="channel-scales">
+<h4>Channel scales<a class="headerlink" href="#channel-scales" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelScale1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelScale1</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelScale1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel scale 1</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V/div</div>
+</div>
+</dd>
+</dl>
+<p>Scale for channel 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelScale2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelScale2</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelScale2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel scale 2</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V/div</div>
+</div>
+</dd>
+</dl>
+<p>Scale for channel 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelScale3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelScale3</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelScale3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel scale 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V/div</div>
+</div>
+</dd>
+</dl>
+<p>Scale for channel 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.ChannelScale4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">ChannelScale4</code><a class="headerlink" href="#scopedevice.ScopeDevice.ChannelScale4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Channel scale 4</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V/div</div>
+</div>
+</dd>
+</dl>
+<p>Scale for channel 4</p>
+</dd></dl>
+
+</div>
+</div>
+<div class="section" id="waveform-attributes">
+<h3>Waveform attributes<a class="headerlink" href="#waveform-attributes" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="waveforms-volts">
+<h4>Waveforms (volts)<a class="headerlink" href="#waveforms-volts" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Waveform1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Waveform1</code><a class="headerlink" href="#scopedevice.ScopeDevice.Waveform1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 1</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Waveform2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Waveform2</code><a class="headerlink" href="#scopedevice.ScopeDevice.Waveform2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 2</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Waveform3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Waveform3</code><a class="headerlink" href="#scopedevice.ScopeDevice.Waveform3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 3</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Waveform4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Waveform4</code><a class="headerlink" href="#scopedevice.ScopeDevice.Waveform4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 4</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 4</p>
+</dd></dl>
+
+</div>
+<div class="section" id="rawwaveforms-divs">
+<h4>RawWaveforms (divs)<a class="headerlink" href="#rawwaveforms-divs" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.RawWaveform1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">RawWaveform1</code><a class="headerlink" href="#scopedevice.ScopeDevice.RawWaveform1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 1</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.RawWaveform2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">RawWaveform2</code><a class="headerlink" href="#scopedevice.ScopeDevice.RawWaveform2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 2</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.RawWaveform3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">RawWaveform3</code><a class="headerlink" href="#scopedevice.ScopeDevice.RawWaveform3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 3</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.RawWaveform4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">RawWaveform4</code><a class="headerlink" href="#scopedevice.ScopeDevice.RawWaveform4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- dtype : (&lt;type &#8216;float&#8217;&gt;,)</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Waveform 4</div>
+<div class="line">- max_dim_x : 100000000</div>
+<div class="line">- unit : div</div>
+</div>
+</dd>
+</dl>
+<p>Waveform data for channel 4</p>
+</dd></dl>
+
+</div>
+</div>
+<div class="section" id="trigger-attributes">
+<h3>Trigger attributes<a class="headerlink" href="#trigger-attributes" title="Permalink to this headline">¶</a></h3>
+<div class="section" id="trigger-settings">
+<h4>Trigger settings<a class="headerlink" href="#trigger-settings" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerSource">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerSource</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerSource" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- format : %1d</div>
+<div class="line">- label : Trigger source</div>
+<div class="line">- max_value : 5</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 1</div>
+</div>
+</dd>
+</dl>
+<p>Channel 1 to 4, or 5 for external trigger</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerSlope">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerSlope</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerSlope" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : int</div>
+<div class="line">- format : %1d</div>
+<div class="line">- label : Trigger slope</div>
+<div class="line">- max_value : 2</div>
+<div class="line">- memorized : True</div>
+<div class="line">- min_value : 0</div>
+</div>
+</dd>
+</dl>
+<p>0 for negative, 1 for positive, 2 for either</p>
+</dd></dl>
+
+</div>
+<div class="section" id="trigger-levels">
+<h4>Trigger levels<a class="headerlink" href="#trigger-levels" title="Permalink to this headline">¶</a></h4>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerLevel1">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerLevel1</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerLevel1" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Trigger level 1</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerLevel2">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerLevel2</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerLevel2" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Trigger level 2</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerLevel3">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerLevel3</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerLevel3" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Trigger level 3</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 3</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.TriggerLevel4">
+<code class="descclassname">ScopeDevice.</code><code class="descname">TriggerLevel4</code><a class="headerlink" href="#scopedevice.ScopeDevice.TriggerLevel4" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Attribute:</dt>
+<dd><div class="first last line-block">
+<div class="line">- access : READ_WRITE</div>
+<div class="line">- dtype : float</div>
+<div class="line">- format : %4.3f</div>
+<div class="line">- label : Trigger level 4</div>
+<div class="line">- memorized : True</div>
+<div class="line">- unit : V</div>
+</div>
+</dd>
+</dl>
+<p>Position for channel 4</p>
+</dd></dl>
+
+</div>
+</div>
+</div>
+<div class="section" id="commands">
+<h2>Commands<a class="headerlink" href="#commands" title="Permalink to this headline">¶</a></h2>
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Connect">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Connect</code><a class="headerlink" href="#scopedevice.ScopeDevice.Connect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Command.</p>
+<p>Connect to the scope. Available in STANDBY state.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Run">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Run</code><a class="headerlink" href="#scopedevice.ScopeDevice.Run" title="Permalink to this definition">¶</a></dt>
+<dd><p>Command.</p>
+<p>Run the acquisition. Available in ON state.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Stop">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Stop</code><a class="headerlink" href="#scopedevice.ScopeDevice.Stop" title="Permalink to this definition">¶</a></dt>
+<dd><p>Command.</p>
+<p>Stop the acquisition. Available in RUNNING state.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Disconnect">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Disconnect</code><a class="headerlink" href="#scopedevice.ScopeDevice.Disconnect" title="Permalink to this definition">¶</a></dt>
+<dd><p>Command.</p>
+<p>Disconnect from the scope. Available in STANDBY state.</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="scopedevice.ScopeDevice.Execute">
+<code class="descclassname">ScopeDevice.</code><code class="descname">Execute</code><a class="headerlink" href="#scopedevice.ScopeDevice.Execute" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="docutils">
+<dt>Command:</dt>
+<dd><div class="first last line-block">
+<div class="line">- doc_in : Execute aribtrary command</div>
+<div class="line">- doc_out : Returns the reply if a query,else DONE if suceeds, else TIMEOUT</div>
+<div class="line">- dtype_in : (&lt;type &#8216;str&#8217;&gt;,)</div>
+<div class="line">- dtype_out : str</div>
+</div>
+</dd>
+</dl>
+<p>Execute a custom command. Available in ON and RUNNING state.</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">ScopeDevice Documentation</a><ul>
+<li><a class="reference internal" href="#properties">Properties</a></li>
+<li><a class="reference internal" href="#attributes">Attributes</a><ul>
+<li><a class="reference internal" href="#general-attributes">General attributes</a></li>
+<li><a class="reference internal" href="#time-attributes">Time attributes</a></li>
+<li><a class="reference internal" href="#channel-attributes">Channel attributes</a><ul>
+<li><a class="reference internal" href="#channel-enabled">Channel enabled</a></li>
+<li><a class="reference internal" href="#channel-coupling">Channel coupling</a></li>
+<li><a class="reference internal" href="#channel-positions">Channel positions</a></li>
+<li><a class="reference internal" href="#channel-scales">Channel scales</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#waveform-attributes">Waveform attributes</a><ul>
+<li><a class="reference internal" href="#waveforms-volts">Waveforms (volts)</a></li>
+<li><a class="reference internal" href="#rawwaveforms-divs">RawWaveforms (divs)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#trigger-attributes">Trigger attributes</a><ul>
+<li><a class="reference internal" href="#trigger-settings">Trigger settings</a></li>
+<li><a class="reference internal" href="#trigger-levels">Trigger levels</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#commands">Commands</a></li>
+</ul>
+</li>
+</ul>
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="index.html" title="previous chapter">Welcome to tangods-scope documentation!</a></li>
+      <li>Next: <a href="scopes.html" title="next chapter">Supported scopes</a></li>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/device.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, MAXIV.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.6</a>
+      
+      |
+      <a href="_sources/device.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

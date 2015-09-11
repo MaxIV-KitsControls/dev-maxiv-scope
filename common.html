@@ -1,0 +1,185 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Documentation for common module &mdash; tangods-scope  documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="tangods-scope  documentation" href="index.html" />
+    <link rel="prev" title="Documentation for server module" href="server.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="module-scopedevice.common">
+<span id="documentation-for-common-module"></span><h1>Documentation for common module<a class="headerlink" href="#module-scopedevice.common" title="Permalink to this headline">¶</a></h1>
+<p>Common functions for the scope devices.</p>
+<dl class="class">
+<dt id="scopedevice.common.RequestQueueDevice">
+<em class="property">class </em><code class="descclassname">scopedevice.common.</code><code class="descname">RequestQueueDevice</code><a class="headerlink" href="#scopedevice.common.RequestQueueDevice" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generic class implementing queues and state transitions.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="scopedevice.common.LockEvent">
+<em class="property">class </em><code class="descclassname">scopedevice.common.</code><code class="descname">LockEvent</code><a class="headerlink" href="#scopedevice.common.LockEvent" title="Permalink to this definition">¶</a></dt>
+<dd><p>Event that can be locked to perform additional test.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.DeviceMeta">
+<code class="descclassname">scopedevice.common.</code><code class="descname">DeviceMeta</code><span class="sig-paren">(</span><em>name</em>, <em>bases</em>, <em>attrs</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.DeviceMeta" title="Permalink to this definition">¶</a></dt>
+<dd><p>Enhanced version of PyTango.server.DeviceMeta
+that supports inheritance.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="scopedevice.common.StopIO">
+<em class="property">exception </em><code class="descclassname">scopedevice.common.</code><code class="descname">StopIO</code><a class="headerlink" href="#scopedevice.common.StopIO" title="Permalink to this definition">¶</a></dt>
+<dd><p>Exception raised to stop the current IO operation.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.attribute">
+<code class="descclassname">scopedevice.common.</code><code class="descname">attribute</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.attribute" title="Permalink to this definition">¶</a></dt>
+<dd><p>Patched version of tango attribute.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.debug_periodic_method">
+<code class="descclassname">scopedevice.common.</code><code class="descname">debug_periodic_method</code><span class="sig-paren">(</span><em>stream=None</em>, <em>track=10</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.debug_periodic_method" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a decorator to log information
+about a periodicaly called method.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="scopedevice.common.event_property">
+<em class="property">class </em><code class="descclassname">scopedevice.common.</code><code class="descname">event_property</code><span class="sig-paren">(</span><em>attribute</em>, <em>default=None</em>, <em>invalid=None</em>, <em>is_allowed=None</em>, <em>event=True</em>, <em>dtype=None</em>, <em>doc=None</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.event_property" title="Permalink to this definition">¶</a></dt>
+<dd><p>Property that pushes change events automatically.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.inheritance_patch">
+<code class="descclassname">scopedevice.common.</code><code class="descname">inheritance_patch</code><span class="sig-paren">(</span><em>attrs</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.inheritance_patch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Patch tango objects before they are processed.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.is_tango_object">
+<code class="descclassname">scopedevice.common.</code><code class="descname">is_tango_object</code><span class="sig-paren">(</span><em>arg</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.is_tango_object" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return tango data if the argument is a tango object,
+False otherwise.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="scopedevice.common.mapping">
+<em class="property">class </em><code class="descclassname">scopedevice.common.</code><code class="descname">mapping</code><span class="sig-paren">(</span><em>instance</em>, <em>convert</em>, <em>keys</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.mapping" title="Permalink to this definition">¶</a></dt>
+<dd><p>Mapping object to gather python attributes.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.partial">
+<code class="descclassname">scopedevice.common.</code><code class="descname">partial</code><span class="sig-paren">(</span><em>func</em>, <em>*args</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.partial" title="Permalink to this definition">¶</a></dt>
+<dd><p>Partial for tango attribute accessors</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.safe_loop">
+<code class="descclassname">scopedevice.common.</code><code class="descname">safe_loop</code><span class="sig-paren">(</span><em>handler_name</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.safe_loop" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decorator to define an exception handler.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.safe_traceback">
+<code class="descclassname">scopedevice.common.</code><code class="descname">safe_traceback</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.safe_traceback" title="Permalink to this definition">¶</a></dt>
+<dd><p>Make the traceback output compatible with PyTango log streaming.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="scopedevice.common.tick_context">
+<code class="descclassname">scopedevice.common.</code><code class="descname">tick_context</code><span class="sig-paren">(</span><em>*args</em>, <em>**kwds</em><span class="sig-paren">)</span><a class="headerlink" href="#scopedevice.common.tick_context" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate a context that controls the duration of its execution.</p>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper"><div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="server.html" title="previous chapter">Documentation for server module</a></li>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/common.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, MAXIV.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.6</a>
+      
+      |
+      <a href="_sources/common.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
