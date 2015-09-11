@@ -35,7 +35,6 @@ class ScopeDevice(RequestQueueDevice):
     time_base_name = "TimeBase"
     waveform_names = dict((i, "Waveform" + str(i)) for i in channels)
     raw_waveform_names = dict((i, "RawWaveform" + str(i)) for i in channels)
-    busy_wait = True  # Default value for busy wait attribute
 
     # Library
     connection_class = None
@@ -176,8 +175,7 @@ class ScopeDevice(RequestQueueDevice):
     @debug_periodic_method("debug_stream")
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
-        item = self.scope.stamp_acquisition(self.channel_enabled,
-                                            busy=self.busy_wait)
+        item = self.scope.stamp_acquisition(self.channel_enabled)
         self.reset_flags()
         self.decoding_queue.put(item)
 
@@ -193,7 +191,12 @@ class ScopeDevice(RequestQueueDevice):
 
     def disconnect(self):
         """Disconnect from the intrument."""
-        self.scope.disconnect()
+        try:
+            self.disconnecting = True
+            self.clean_acquisition()
+            self.scope.disconnect()
+        finally:
+            self.disconnecting = False
 
     def prepare_acquisition(self):
         """Prepare the waveform acquisition."""
@@ -223,7 +226,7 @@ class ScopeDevice(RequestQueueDevice):
     def scope_callback(self, exc):
         """Callback to terminate the thread quickly."""
         # Stop the thread
-        if not self.alive:
+        if not self.alive and not self.disconnecting:
             msg = "Stopping the thread..."
             raise StopIO(msg)
 
@@ -339,6 +342,7 @@ class ScopeDevice(RequestQueueDevice):
         RequestQueueDevice.init_device(self)
         # Misc. attributes
         self.linspace_args = None
+        self.disconnecting = False
         self.stamp = time()
         self.error = ""
         # Thread attribute

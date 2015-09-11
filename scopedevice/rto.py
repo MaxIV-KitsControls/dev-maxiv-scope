@@ -1,15 +1,11 @@
 """Provide the RTO scope TANGO device class."""
 
-# Imports
-import PyTango
-
 # Library imports
 from rohdescope import RTOConnection
 
 # Common imports
 from scopedevice.device import ScopeDevice
-from scopedevice.common import (rw_attribute, DeviceMeta,
-                                partial, safe_traceback)
+from scopedevice.common import rw_attribute, DeviceMeta, partial
 
 
 # RTO scope device
@@ -32,18 +28,6 @@ class RTOScope(ScopeDevice):
         ScopeDevice.clean_acquisition(self)
         self.scope.issue_stop()
         self.scope.set_display(True)
-
-    # Turn on the display
-    def delete_device(self):
-        """Turn on the display and stop the threads."""
-        try:
-            if self.connected:
-                self.scope.set_display(True)
-        except Exception as exc:
-            msg = "Error while turning the display on: {0}"
-            self.debug_stream(safe_traceback())
-            self.error_stream(msg.format(exc))
-        return ScopeDevice.delete_device(self)
 
     # Channel couling
     def channel_coupling_attribute(channel):
@@ -76,22 +60,6 @@ class RTOScope(ScopeDevice):
         fget=ScopeDevice.trigger_coupling.read,
         doc="0 for DC, 1 for AC, 2 for DCLimit",
     )
-
-    # Expert attribute for busy wait
-
-    BusyWait = rw_attribute(
-        dtype=bool,
-        format="%1d",
-        label="Busy wait",
-        display_level=PyTango.DispLevel.EXPERT,
-        doc="Use busy wait for acquiring (safer)",
-    )
-
-    def read_BusyWait(self):
-        return self.busy_wait
-
-    def write_BusyWait(self, boolean):
-        self.busy_wait = boolean
 
 
 # Main execution
