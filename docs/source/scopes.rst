@@ -30,11 +30,3 @@ The following devices subclass the ScopeDevice generic interface.
     .. autotangoitem:: scopedevice.RTOScope.ChannelCoupling3
 
     .. autotangoitem:: scopedevice.RTOScope.ChannelCoupling4
-
-    It also adds an expert attribute to disbable the busy wait when running acquisitions:
-
-    .. autotangoitem:: scopedevice.RTOScope.BusyWait
-
-       If the the busy wait is disabled, the library will use the `*OPC?` command to
-       acquire the waveforms. It means that if the trigger signal stops, the remote
-       connection will freeze until the next trigger. This makes it extremely unsafe.
