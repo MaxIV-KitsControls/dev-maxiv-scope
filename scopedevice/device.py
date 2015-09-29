@@ -864,7 +864,7 @@ class ScopeDevice(RequestQueueDevice):
         self.enqueue_transition(DevState.STANDBY, DevState.ON,
                                 self.connect)
 
-    def is_On_allowed(self):
+    def is_Connect_allowed(self):
         return self.steady_state(DevState.STANDBY)
 
     # Disconnect command
@@ -875,7 +875,7 @@ class ScopeDevice(RequestQueueDevice):
         self.enqueue_transition(DevState.ON, DevState.STANDBY,
                                 self.disconnect)
 
-    def is_Standby_allowed(self):
+    def is_Disconnect_allowed(self):
         return self.steady_state(DevState.ON)
 
     # Execute command
