@@ -595,28 +595,29 @@ class RequestQueueDevice(PyTango.server.Device):
     def enqueue_transition(self, state1, state2, func, *args, **kwargs):
         """Enqueue a task associated to a state transition."""
         def wrapper():
-            # Check initial state
-            if self.get_state() != state1:
-                msg = "Cannot run transition task, state is {0} instead of {1}"
-                self.warn_stream(msg.format(self.get_state(), state1))
-                return
-            # Execute task
-            try:
-                res = func(*args, **kwargs)
-            # Reset transition
-            except:
-                msg = "Got an exception while running the transition task"
-                self.warn_stream(msg)
-                self.next_state = None
-                raise
-            # Check initial state
-            if self.get_state() != state1:
-                msg = "Cannot transit to {0}, state is {1} instead of {2}"
-                self.warn_stream(msg.format(state2, self.get_state(), state1))
+            with self.ensure_reset_next_state():
+                # Check initial state
+                if self.get_state() != state1:
+                    msg = "Cannot run transition, state is {0} instead of {1}"
+                    self.warn_stream(msg.format(self.get_state(), state1))
+                    return
+                # Execute task
+                try:
+                    res = func(*args, **kwargs)
+                # Reset transition
+                except:
+                    msg = "Got an exception while running the transition task"
+                    self.warn_stream(msg)
+                    raise
+                # Check initial state
+                if self.get_state() != state1:
+                    msg = "Cannot transit to {0}, state is {1} instead of {2}"
+                    msg = msg.format(state2, self.get_state(), state1)
+                    self.warn_stream(msg)
+                    return res
+                # Set new state
+                self.set_state(state2)
                 return res
-            # Set new state
-            self.set_state(state2)
-            return res
         # Register next state
         self.set_next_state(state2)
         self.enqueue(wrapper)
@@ -646,13 +647,22 @@ class RequestQueueDevice(PyTango.server.Device):
         """Handle the thread depending on the current state."""
         self.update_attributes()
 
-    def set_next_state(self, state=None):
+    def set_next_state(self, state):
         """Set the next state for a transistion."""
         self.next_state = state
-        if state is not None:
-            self.manage_state(state, transition=True)
-        else:
-            self.manage_state(self.get_state(), transition=False)
+        self.manage_state(state, transition=True)
+
+    def reset_next_state(self):
+        """Reset the next state."""
+        self.next_state = None
+
+    @contextmanager
+    def ensure_reset_next_state(self):
+        """Context to make sure the next state is reset."""
+        try:
+            yield self.next_state
+        finally:
+            self.reset_next_state()
 
     def set_state(self, state):
         """Awake the scope thread when the device is in the right state."""
@@ -668,7 +678,8 @@ class RequestQueueDevice(PyTango.server.Device):
             self.debug_stream(msg.format(state, self.next_state))
         # Set state
         PyTango.server.Device.set_state(self, state)
-        self.set_next_state()
+        self.reset_next_state()
+        self.manage_state(state, transition=False)
 
     def steady_state(self, state, raise_exception=True):
         """Check that the device is in a given steady state."""
