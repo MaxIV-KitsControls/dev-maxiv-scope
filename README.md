@@ -20,7 +20,7 @@ Information
 Requirement
 -----------
 
- - library: [lib-maxiv-rohdescope][rohdescope] >= 0.4.5
+ - library: [lib-maxiv-rohdescope][rohdescope] >= 0.4.6
 
 [rohdescope]: https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope
 
