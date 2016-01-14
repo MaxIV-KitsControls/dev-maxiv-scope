@@ -2,20 +2,19 @@
 
 # Imports
 import sys
+import time
 import weakref
 import PyTango
+import threading
 import functools
 import traceback
 import collections
-from time import sleep
 from contextlib import contextmanager
-from timeit import default_timer as time
 from threading import _Condition, _Event
-from collections import Mapping, namedtuple
 from PyTango import AttrQuality, AttReqType, AttrWriteType, server
 
 # Stamped tuple
-_stamped = namedtuple("stamped", ("value", "stamp", "quality"))
+_stamped = collections.namedtuple("stamped", ("value", "stamp", "quality"))
 stamped = functools.partial(_stamped, quality=AttrQuality.ATTR_VALID)
 
 
@@ -151,11 +150,11 @@ class LockEvent(_Condition, _Event):
 @contextmanager
 def tick_context(value):
     """Generate a context that controls the duration of its execution."""
-    start = time()
+    start = time.time()
     yield
-    sleep_time = start + value - time()
+    sleep_time = start + value - time.time()
     if sleep_time > 0:
-        sleep(sleep_time)
+        time.sleep(sleep_time)
 
 
 # Safe traceback
@@ -224,7 +223,7 @@ def debug_periodic_method(stream=None, track=10):
             logger = getattr(self, stream) if stream else lambda msg: None
             # Get stamps
             stamps = cache.setdefault(self, collections.deque(maxlen=track))
-            now = time()
+            now = time.time()
             # Log last call
             if stamps:
                 msg = "Calling {0} (last call {1:1.3f} s ago)"
@@ -233,13 +232,13 @@ def debug_periodic_method(stream=None, track=10):
             value = func(self, *args, **kwargs)
             # Log last
             msg = "{0} ran in {1:1.3f} seconds"
-            logger(msg.format(func_name, time() - now))
+            logger(msg.format(func_name, time.time() - now))
             # Save stamps
             stamps.append(now)
             # Log last calls
             if len(stamps) > 1:
                 msg = "{0} ran {1} times in the last {2:1.3f} seconds"
-                logger(msg.format(func_name, len(stamps), time() - stamps[0]))
+                logger(msg.format(func_name, len(stamps), time.time() - stamps[0]))
             # Return
             return value
         return wrapper
@@ -256,16 +255,20 @@ class event_property(object):
 
     def __init__(self, attribute, default=None, invalid=None,
                  is_allowed=None, event=True, dtype=None, doc=None):
+        self.lock_cache = weakref.WeakKeyDictionary()
         self.attribute = attribute
         self.default = default
         self.invalid = invalid
         self.event = event
-        self.dtype = dtype
+        self.dtype = dtype if callable(dtype) else None
         self.__doc__ = doc
         default = getattr(attribute, "is_allowed_name", "")
         self.is_allowed = is_allowed or default
 
     # Helper
+
+    def get_lock(self, device):
+        return self.lock_cache.setdefault(device, threading.RLock())
 
     def get_attribute_name(self):
         try:
@@ -343,11 +346,12 @@ class event_property(object):
         return value, None, None
 
     def check_value(self, device, value, stamp, quality):
+        if value is None or \
+           (self.invalid is not None and value == self.invalid):
+            return self.get_default_value(device), stamp, self.INVALID
         if self.dtype:
             value = self.dtype(value)
-        if value != self.invalid:
-            return value, stamp, quality
-        return self.get_default_value(device), stamp, self.INVALID
+        return value, stamp, quality
 
     def get_default_value(self, device):
         if self.default != self.invalid:
@@ -417,45 +421,50 @@ class event_property(object):
     # Private attribute access
 
     def get_value(self, device, attr=None):
-        try:
-            value = self.get_private_value(device)
-            stamp = self.get_private_stamp(device)
-            quality = self.get_private_quality(device)
-        except AttributeError:
-            value = self.get_default_value(device)
-            stamp = time()
-            quality = self.get_default_quality()
+        # Get value
+        with self.get_lock(device):
+            try:
+                value = self.get_private_value(device)
+                stamp = self.get_private_stamp(device)
+                quality = self.get_private_quality(device)
+            except AttributeError:
+                value = self.get_default_value(device)
+                stamp = time.time()
+                quality = self.get_default_quality()
+        # Set value
         if attr:
             attr.set_value_date_quality(value, stamp, quality)
+        # Return
         return value, stamp, quality
 
     def set_value(self, device, value=None, stamp=None, quality=None,
                   disable_event=False):
-        # Prepare
-        old_value, old_stamp, old_quality = self.get_value(device)
-        if value is None:
-            value = old_value
-        if stamp is None:
-            stamp = time()
-        if quality is None and value is not None:
-            quality = self.VALID
-        elif quality is None:
-            quality = old_quality
-        # Test differences
-        diff = old_quality != quality or old_value != value
-        try:
-            bool(diff)
-        except ValueError:
-            diff = diff.any()
-        if not diff:
-            return
-        # Set
-        self.set_private_value(device, value)
-        self.set_private_stamp(device, stamp)
-        self.set_private_quality(device, quality)
-        # Push event
-        if not disable_event and self.event_enabled(device):
-            self.push_event(device, *self.get_value(device))
+        with self.get_lock(device):
+            # Prepare
+            old_value, old_stamp, old_quality = self.get_value(device)
+            if value is None:
+                value = old_value
+            if stamp is None:
+                stamp = time.time()
+            if quality is None and value is not None:
+                quality = self.VALID
+            elif quality is None:
+                quality = old_quality
+            # Test differences
+            diff = old_quality != quality or old_value != value
+            try:
+                bool(diff)
+            except ValueError:
+                diff = diff.any()
+            if not diff:
+                return
+            # Set
+            self.set_private_value(device, value)
+            self.set_private_stamp(device, stamp)
+            self.set_private_quality(device, quality)
+            # Push event
+            if not disable_event and self.event_enabled(device):
+                self.push_event(device, *self.get_value(device))
 
     # Aliases
 
@@ -465,15 +474,16 @@ class event_property(object):
     # Event method
 
     def push_event(self, device, value, stamp, quality):
-        attr = getattr(device, self.get_attribute_name())
-        if not attr.is_change_event():
-            attr.set_change_event(True, False)
-        device.push_change_event(self.get_attribute_name(),
-                                 value, stamp, quality)
+        with self.get_lock(device):
+            attr = getattr(device, self.get_attribute_name())
+            if not attr.is_change_event():
+                attr.set_change_event(True, False)
+            attr.set_value_date_quality(value, stamp, quality)
+            attr.fire_change_event()
 
 
 # Mapping object
-class mapping(Mapping):
+class mapping(collections.MutableMapping):
     """Mapping object to gather python attributes."""
 
     def clear(self):
@@ -481,30 +491,30 @@ class mapping(Mapping):
             del self[x]
 
     def __init__(self, instance, convert, keys):
-        self.keys = list(keys)
+        self.key_list = list(keys)
         self.convert = convert
         self.instance = instance
 
     def __getitem__(self, key):
-        if key not in self.keys:
+        if key not in self.key_list:
             raise KeyError(key)
         return getattr(self.instance, self.convert(key))
 
     def __setitem__(self, key, value):
-        if key not in self.keys:
+        if key not in self.key_list:
             raise KeyError(key)
         setattr(self.instance, self.convert(key), value)
 
     def __delitem__(self, key):
-        if key not in self.keys:
+        if key not in self.key_list:
             raise KeyError(key)
         delattr(self.instance, self.convert(key))
 
     def __iter__(self):
-        return iter(self.keys)
+        return iter(self.key_list)
 
     def __len__(self):
-        return len(self.keys)
+        return len(self.key_list)
 
     def __str__(self):
         return str(dict(self.items()))
