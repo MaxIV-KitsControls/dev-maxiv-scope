@@ -68,7 +68,12 @@ setup(name="tangods-scope",
       url="http://www.maxlab.lu.se",
       long_description=safe_read("README.md"),
       packages=["scopedevice"],
-      test_suite="nose.collector",
       scripts=["script/RTOScope", "script/RTMScope"],
       cmdclass={'upload_pages': UploadPages},
+      setup_requires=['pytest-runner'],
+      install_requires=['PyTango', 'python-rohdescope', 'python-vxi11'],
+      tests_require=['mock', 'python-devicetest', 'pytest'],
+      dependency_links=['git+https://github.com/vxgmichel/pytango-devicetest.git#egg=python-devicetest',
+                        'git+https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope#egg=python-rohdescope',
+                        'git+https://github.com/MaxIV-KitsControls/python-vxi11#egg=python-vxi11']
       )

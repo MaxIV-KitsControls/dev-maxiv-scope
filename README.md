@@ -49,7 +49,7 @@ Unit testing
 
 Run:
 
-    $ python setup.py nosetests
+    $ python setup.py test
 
 See the [devicetest][test] library.
 
