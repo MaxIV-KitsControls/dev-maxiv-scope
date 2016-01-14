@@ -8,10 +8,12 @@ import PyTango
 import threading
 import functools
 import traceback
+import contextlib
 import collections
-from contextlib import contextmanager
-from threading import _Condition, _Event
-from PyTango import AttrQuality, AttReqType, AttrWriteType, server
+
+# PyTango imports
+from PyTango import server
+from PyTango import AttrQuality, AttReqType, AttrWriteType
 
 # Stamped tuple
 _stamped = collections.namedtuple("stamped", ("value", "stamp", "quality"))
@@ -119,35 +121,35 @@ def attribute(*args, **kwargs):
 
 
 # Lock Event
-class LockEvent(_Condition, _Event):
+class LockEvent(threading._Condition, threading._Event):
     """Event that can be locked to perform additional test."""
 
     def __init__(self):
         """Initialize the event."""
-        _Condition.__init__(self)
-        _Event.__init__(self)
+        threading._Condition.__init__(self)
+        threading._Event.__init__(self)
 
     def wait(self, timeout=None):
         """Wait for the event to be set."""
         with self:
             if not self.is_set():
-                _Condition.wait(self, timeout)
+                threading._Condition.wait(self, timeout)
             return self.is_set()
 
     def set(self):
         """Set the event."""
         with self:
-            _Event.set(self)
+            threading._Event.set(self)
             self.notify()
 
     def clear(self):
         """Clear the event."""
         with self:
-            _Event.clear(self)
+            threading._Event.clear(self)
 
 
 # Tick context
-@contextmanager
+@contextlib.contextmanager
 def tick_context(value):
     """Generate a context that controls the duration of its execution."""
     start = time.time()
@@ -666,7 +668,7 @@ class RequestQueueDevice(PyTango.server.Device):
         """Reset the next state."""
         self.next_state = None
 
-    @contextmanager
+    @contextlib.contextmanager
     def ensure_reset_next_state(self):
         """Context to make sure the next state is reset."""
         try:
