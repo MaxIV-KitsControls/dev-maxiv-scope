@@ -12,7 +12,7 @@ from devicetest import DeviceTestCase
 
 # Constants
 READ = 0.01
-UPDATE = 0.05
+UPDATE = 0.08
 PRECISION = 5
 
 
