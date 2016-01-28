@@ -176,9 +176,9 @@ class ScopeDevice(RequestQueueDevice):
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
         channel_enabled = dict(self.channel_enabled)
-        self.info("Running a new waveform acquisition...")
+        self.info_stream("Running a new waveform acquisition...")
         item = self.scope.stamp_acquisition(channel_enabled)
-        self.info("The waveform acquisition completed successfully!")
+        self.info_stream("The waveform acquisition completed successfully!")
         self.reset_flags()
         self.decoding_queue.put(item)
 
