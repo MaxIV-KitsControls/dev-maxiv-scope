@@ -239,8 +239,9 @@ def debug_periodic_method(stream=None, track=10):
             stamps.append(now)
             # Log last calls
             if len(stamps) > 1:
+                delta = time.time() - stamps[0]
                 msg = "{0} ran {1} times in the last {2:1.3f} seconds"
-                logger(msg.format(func_name, len(stamps), time.time() - stamps[0]))
+                logger(msg.format(func_name, len(stamps), delta))
             # Return
             return value
         return wrapper
@@ -565,9 +566,10 @@ class RequestQueueDevice(PyTango.server.Device):
             self.error = "unexpected error"
         # Log traceback
         try:
-            self.error_stream(safe_traceback())
+            self.error_stream("Exception: {}".format(self.error))
+            self.debug_stream(safe_traceback())
         except:
-            self.error_stream("Cannot log traceback.")
+            self.warn_stream("Cannot log error and traceback properly.")
         # Set state
         self.set_state(PyTango.DevState.FAULT)
 
@@ -681,13 +683,13 @@ class RequestQueueDevice(PyTango.server.Device):
         # Check transition
         if self.next_state is None:
             msg = "Unplanned state transition ({0})"
-            self.debug_stream(msg.format(state))
+            self.info_stream(msg.format(state))
         elif self.next_state == state:
             msg = "Valid state transition ({0})"
-            self.debug_stream(msg.format(state))
+            self.info_stream(msg.format(state))
         else:
             msg = "Invalid state transition ({0} instead of {1})"
-            self.debug_stream(msg.format(state, self.next_state))
+            self.warn_stream(msg.format(state, self.next_state))
         # Set state
         PyTango.server.Device.set_state(self, state)
         self.reset_next_state()

@@ -175,7 +175,10 @@ class ScopeDevice(RequestQueueDevice):
     @debug_periodic_method("debug_stream")
     def acquire_waveforms(self):
         """Run a single acquisition and stamp it."""
-        item = self.scope.stamp_acquisition(self.channel_enabled)
+        channel_enabled = dict(self.channel_enabled)
+        self.info("Running a new waveform acquisition...")
+        item = self.scope.stamp_acquisition(channel_enabled)
+        self.info("The waveform acquisition completed successfully!")
         self.reset_flags()
         self.decoding_queue.put(item)
 
@@ -244,13 +247,15 @@ class ScopeDevice(RequestQueueDevice):
         """Process an exception raised during the thread execution."""
         # Ignore StopIO exception
         if isinstance(exc, StopIO):
-            self.warn_stream(str(exc))
+            self.info_stream(str(exc))
             return
         # Explicit instrument timeout
         if isinstance(exc, Vxi11Exception) and exc.err == 15:
             # Ignore when waiting for a trigger
             if self.get_state() == DevState.RUNNING or exc.note == "wait":
-                self.warn_stream(safe_traceback())
+                self.warn_stream("Timeout while acquiring "
+                                 "(no trigger detected)")
+                self.debug_stream(safe_traceback())
                 self.enqueue(self.check_connection)
                 return
             # Report
@@ -392,7 +397,7 @@ class ScopeDevice(RequestQueueDevice):
     def stop_scope_thread(self):
         """Stop the scope thread."""
         timeout = self.connection_timeout + self.callback_timeout
-        self.debug_stream("Joining the reading thread...")
+        self.info_stream("Joining the reading thread...")
         self.scope_thread.join(timeout)
         if self.scope_thread.is_alive():
             self.error_stream("Cannot join the reading thread")
@@ -400,7 +405,7 @@ class ScopeDevice(RequestQueueDevice):
     def stop_decoding_thread(self):
         """Stop the decoding thread."""
         self.decoding_queue.put(None)
-        self.debug_stream("Joining the decoding thread...")
+        self.info_stream("Joining the decoding thread...")
         self.decoding_thread.join(self.callback_timeout)
 
 # ------------------------------------------------------------------
