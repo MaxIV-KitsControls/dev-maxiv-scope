@@ -34,7 +34,7 @@ class ScopeDeviceTestCase(DeviceTestCase):
                   'SettingsEvents': False,
                   'WaveformEvents': False}
     empty = None  # Should be []
-    debug = 0
+    debug = 2
 
     def assertEquals(self, arg1, arg2):
         if isinstance(arg1, float) or isinstance(arg2, float):
@@ -44,8 +44,8 @@ class ScopeDeviceTestCase(DeviceTestCase):
             DeviceTestCase.assertEquals(self, arg1, arg2)
 
     def attribute_pattern(self, attr, values, read, write):
-        for values in product(values, repeat=4):
-            dct = dict(zip(range(1, 5), values))
+        for values in product(values, repeat=2):
+            dct = dict(zip(range(1, 5), values*2))
             # Write
             for key, value in dct.items():
                 setattr(self.device, attr+str(key), value)
