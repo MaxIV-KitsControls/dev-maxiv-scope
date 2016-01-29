@@ -566,10 +566,10 @@ class RequestQueueDevice(PyTango.server.Device):
             self.error = "unexpected error"
         # Log traceback
         try:
-            self.error_stream("Exception: {}".format(self.error))
+            self.error_stream("Exception: {0}".format(self.error))
             self.debug_stream(safe_traceback())
         except:
-            self.warn_stream("Cannot log error and traceback properly.")
+            self.error_stream("Cannot log error and traceback properly.")
         # Set state
         self.set_state(PyTango.DevState.FAULT)
 
