@@ -59,21 +59,23 @@ def safe_read(fname):
 
 
 # Setup
-setup(name="tangods-scope",
-      version="3.3.0",
-      description="Device servers for the Rohde and Schwarz oscilloscopes.",
-      author="Vincent Michel; Paul Bell",
-      author_email="vincent.michel@maxlab.lu.se; paul.bell@maxlab.lu.se",
-      license="GPLv3",
-      url="http://www.maxlab.lu.se",
-      long_description=safe_read("README.md"),
-      packages=["scopedevice"],
-      scripts=["script/RTOScope", "script/RTMScope"],
-      cmdclass={'upload_pages': UploadPages},
-      setup_requires=['pytest-runner'],
-      install_requires=['PyTango', 'python-rohdescope', 'python-vxi11'],
-      tests_require=['mock', 'python-devicetest', 'pytest'],
-      dependency_links=['git+https://github.com/vxgmichel/pytango-devicetest.git#egg=python-devicetest',
-                        'git+https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope#egg=python-rohdescope',
-                        'git+https://github.com/MaxIV-KitsControls/python-vxi11#egg=python-vxi11']
-      )
+setup(
+    name="tangods-scope",
+    version="3.3.0",
+    description="Device servers for the Rohde and Schwarz oscilloscopes.",
+    author="Vincent Michel; Paul Bell",
+    author_email="vincent.michel@maxlab.lu.se; paul.bell@maxlab.lu.se",
+    license="GPLv3",
+    url="http://www.maxlab.lu.se",
+    long_description=safe_read("README.md"),
+    packages=["scopedevice"],
+    scripts=["script/RTOScope", "script/RTMScope"],
+    cmdclass={'upload_pages': UploadPages},
+    setup_requires=['pytest-runner'],
+    install_requires=['PyTango', 'python-rohdescope>=0.4.8'],
+    tests_require=['mock', 'python-devicetest', 'pytest'],
+    dependency_links=[
+        'git+https://github.com/vxgmichel/pytango-devicetest.git'
+        '#egg=python-devicetest',
+        'git+https://github.com/MaxIV-KitsControls/lib-maxiv-rohdescope'
+        '#egg=python-rohdescope-0.4.8'])
