@@ -196,8 +196,10 @@ class ScopeDevice(RequestQueueDevice):
         """Disconnect from the intrument."""
         try:
             self.disconnecting = True
-            self.clean_acquisition()
-            self.scope.disconnect()
+            try:
+                self.clean_acquisition()
+            finally:
+                self.scope.disconnect()
         finally:
             self.disconnecting = False
 
