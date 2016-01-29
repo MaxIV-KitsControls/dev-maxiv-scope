@@ -365,16 +365,12 @@ class ScopeDevice(RequestQueueDevice):
         self.trigger_levels = self.channel_mapping("trigger_level", True)
         self.channel_enabled = self.channel_mapping("channel_enabled")
         # Instanciate scope
-        callback_ms = int(self.callback_timeout * 1000)
-        connection_ms = int(self.connection_timeout * 1000)
-        instrument_ms = int(self.instrument_timeout * 1000)
-        callback = self.scope_callback
-        kwargs = {'host': self.Host,
-                  'callback_timeout': callback_ms,
-                  'connection_timeout': connection_ms,
-                  'instrument_timeout': instrument_ms,
-                  'callback': callback}
-        self.scope = self.connection_class(**kwargs)
+        self.scope = self.connection_class(
+            self.Host,
+            callback_timeout=self.callback_timeout,
+            connection_timeout=self.connection_timeout,
+            instrument_timeout=self.instrument_timeout,
+            callback=self.scope_callback)
         # Run thread
         self.scope_thread.start()
         self.decoding_thread.start()
