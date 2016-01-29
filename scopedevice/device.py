@@ -903,5 +903,4 @@ class ScopeDevice(RequestQueueDevice):
             return msg.format(self.instrument_timeout)
 
     def is_Execute_allowed(self):
-        return (self.steady_state(DevState.ON) or
-                self.steady_state(DevState.RUNNING))
+        return self.steady_state(DevState.ON)
