@@ -98,10 +98,10 @@ class ScopeDeviceTestCase(DeviceTestCase):
         self.assertEquals(DevState.ON, self.device.state())
         self.assertTrue(self.connection.called)
         callback = self.connection.call_args[1].get("callback")
-        self.connection.assert_called_with(host='1.2.3.4',
-                                           connection_timeout=2000,
-                                           instrument_timeout=2000,
-                                           callback_timeout=500,
+        self.connection.assert_called_with('1.2.3.4',
+                                           connection_timeout=2.0,
+                                           instrument_timeout=2.0,
+                                           callback_timeout=0.5,
                                            callback=callback)
 
     def test_states(self):
